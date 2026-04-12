@@ -1,0 +1,53 @@
+{
+  "api_key": "YOUR_BYBIT_API_KEY",
+  "api_secret": "YOUR_BYBIT_API_SECRET",
+  "testnet": false,
+  "account_type": "UNIFIED",
+  "symbols": [
+    "SOLUSDT"
+  ],
+  "buy_pct_of_usdt": 0.25,
+  "sell_pct_of_base": 0.15,
+  "min_usdt_per_buy": 5,
+  "enable_trading": true,
+  "recv_window_ms": 5000,
+  "hours_lookback": 72,
+  "history_days_for_cost": 60,
+  "auto": {
+    "interval_sec": 120
+  },
+  "fees": {
+    "spot_taker_bps": 10.0,
+    "spot_maker_bps": 0.0
+  },
+  "risk": {
+    "cooldown_min": 30,
+    "max_orders_per_symbol_per_day": 4,
+    "max_daily_loss_pct": 3.0,
+    "cooldown_after_loss_min": 60,
+    "max_single_trade_pct": 20
+  },
+  "strategy": {
+    "min_edge_bps": 25,
+    "rsi_oversold": 25,
+    "rsi_overbought": 75,
+    "max_daily_vol": 0.06,
+    "sma_filter": true,
+    "rsi_period": 14,
+    "grid_enabled": true,
+    "grid_spacing_pct": 1.5,
+    "trend_threshold": 30,
+    "stop_loss_pct": 3.0,
+    "trailing_stop_pct": 2.0,
+    "max_position_pct": 85,
+    "min_position_pct": 15,
+    "base_trade_pct": 12,
+    "max_atr_pct": 4.0,
+    "min_confirmation": 2,
+    "macro_analysis_enabled": false,
+    "macro_min_confidence": 0.5
+  },
+  "gpt_api_key": "YOUR_OPENAI_API_KEY",
+  "gpt_model": "gpt-4o"
+}
+

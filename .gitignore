@@ -1,0 +1,27 @@
+# Secrets
+config.json
+
+# Database
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Runtime
+*.pid
+__pycache__/
+*.pyc
+logs/
+data/*.db
+
+# OS
+.DS_Store
+
+# Backtest outputs
+backtest_results.json
+backtest_trades.csv
+backtest_trend_trades.csv
+
+# Runtime logs
+nohup.out
+*.bak

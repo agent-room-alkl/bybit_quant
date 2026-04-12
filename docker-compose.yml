@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  quant:
+    build: .
+    container_name: quant-trading
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai

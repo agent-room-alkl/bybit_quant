@@ -1,0 +1,25 @@
+[Unit]
+Description=Bybit Quant Trading Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bybit_quant_simple
+ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/root/bybit_quant_simple/logs/stdout.log
+StandardError=append:/root/bybit_quant_simple/logs/stderr.log
+
+# 环境变量（如果需要）
+# Environment="BYBIT_API_KEY=your_key"
+# Environment="BYBIT_API_SECRET=your_secret"
+
+# 资源限制
+MemoryMax=512M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
+

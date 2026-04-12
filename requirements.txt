@@ -1,0 +1,9 @@
+requests
+pandas
+numpy
+matplotlib
+python-dateutil
+fastapi
+uvicorn
+PyJWT
+python-multipart
