@@ -20,11 +20,11 @@ FEE_PCT = 0.001   # 0.1% taker fee
 
 STRATEGY_CONFIG = {
     "strategy": {
-        "rsi_oversold": 30,
+        "rsi_oversold": 25,
         "rsi_overbought": 75,
         "min_edge_bps": 40,
         "grid_enabled": True,
-        "grid_spacing_pct": 1.5,
+        "grid_spacing_pct": 0.6,
         "trend_threshold": 30,
         "stop_loss_pct": 4.0,
         "trailing_stop_pct": 2.0,
@@ -32,7 +32,7 @@ STRATEGY_CONFIG = {
         "min_position_pct": 10,
         "base_trade_pct": 6,
         "max_atr_pct": 5.0,
-        "min_confirmation": 4,
+        "min_confirmation": 2,
         "scalp_mode": False,
         "btc_trend_enabled": True,
         "btc_trend_weight": 0.2,
@@ -453,55 +453,6 @@ class Portfolio:
             self.max_drawdown = dd
 
 
-# ── v6.0 历史新闻情绪模拟 ────────────────────────────────────────
-# 基于 2025-2026 年重大事件，模拟新闻情绪分数
-# 每个事件影响约 3-7 天，然后衰减回中性
-
-_HISTORICAL_EVENTS = [
-    # (起始日期, 持续天数, score, confidence, risk_level, 事件描述)
-    # 2025年
-    ("2025-04-15", 5, 30, 0.7, "low"),       # BTC ETF 持续流入
-    ("2025-05-10", 3, -30, 0.6, "medium"),    # 美联储鹰派讲话
-    ("2025-06-15", 5, 40, 0.8, "low"),        # SEC 批准更多加密ETF
-    ("2025-07-20", 7, 50, 0.8, "low"),        # Solana ETF 获批传闻
-    ("2025-08-05", 4, -20, 0.6, "medium"),    # 全球股市回调
-    ("2025-09-10", 5, 35, 0.7, "low"),        # 美联储暗示降息
-    ("2025-10-01", 7, -40, 0.7, "high"),      # 中东紧张局势升级
-    ("2025-10-20", 5, 25, 0.6, "medium"),     # 紧张局势缓和
-    ("2025-11-05", 5, -50, 0.8, "high"),      # 美国大选不确定性
-    ("2025-11-15", 7, 45, 0.8, "low"),        # 大选结果利好加密
-    ("2025-12-10", 5, -35, 0.7, "high"),      # 年末获利了结
-    # 2026年
-    ("2026-01-10", 5, 30, 0.7, "low"),        # 新年资金流入
-    ("2026-01-25", 5, -55, 0.8, "high"),      # 加密交易所被黑客攻击
-    ("2026-02-05", 7, -60, 0.9, "high"),      # 全球关税战升级，市场恐慌
-    ("2026-02-20", 5, -45, 0.8, "high"),      # 持续贸易战
-    ("2026-03-01", 5, 20, 0.6, "medium"),     # 部分关税缓和信号
-    ("2026-03-15", 7, 50, 0.8, "low"),        # 美联储降息25bp
-    ("2026-04-01", 5, 35, 0.7, "low"),        # Solana ETF 正式交易
-    ("2026-04-08", 7, 55, 0.9, "low"),        # 美伊停火 + PPI利好
-]
-
-import datetime as _bt_dt
-
-def _simulate_news_sentiment(ts_ms: int) -> tuple:
-    """根据历史事件时间表返回模拟的情绪分数"""
-    dt_obj = _bt_dt.datetime.utcfromtimestamp(ts_ms / 1000)
-    date_str = dt_obj.strftime("%Y-%m-%d")
-
-    for event_start, duration, score, conf, risk in _HISTORICAL_EVENTS:
-        start = _bt_dt.datetime.strptime(event_start, "%Y-%m-%d")
-        end = start + _bt_dt.timedelta(days=duration)
-        if start <= dt_obj < end:
-            # 线性衰减：事件第1天全强度，最后一天衰减到30%
-            days_in = (dt_obj - start).total_seconds() / 86400
-            decay = max(0.3, 1.0 - 0.7 * days_in / duration)
-            return (int(score * decay), conf, risk)
-
-    # 无事件期间返回中性
-    return (0, 0.0, "medium")
-
-
 # ── Main Backtest ─────────────────────────────────────────────────
 
 def run_backtest():
@@ -599,9 +550,6 @@ def run_backtest():
         atr_val = g(sol_ind, i, "atr14")
         atr_pct = (atr_val / price * 100) if price > 0 else 0.0
         
-        # v6.0: 模拟历史新闻情绪
-        news_s, news_c, news_r = _simulate_news_sentiment(ts)
-
         state = MarketState(
             last_price=price,
             cost_price=portfolio.cost_price,
@@ -643,10 +591,6 @@ def run_backtest():
             consecutive_buys=portfolio.consecutive_buys,
             h1_ema8=h1_ema8_,
             adx=adx_,
-            # v6.0: 新闻情绪
-            news_sentiment=news_s,
-            news_confidence=news_c,
-            news_risk_level=news_r,
         )
         
         signal = strategy.analyze(state, pos_pct, portfolio.last_buy_price, tv)

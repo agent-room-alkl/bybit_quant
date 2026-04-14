@@ -14,7 +14,7 @@ v5.0 改进 (Atlas, 2026-03-22)：
 """
 from __future__ import annotations
 from typing import Dict, Any, Tuple, Optional, List
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import time, math, logging
 
 log = logging.getLogger("strategy")
@@ -99,8 +99,13 @@ class MarketState:
     # ── v5.2: 新增指标 ──
     h1_ema8: float = 0.0             # 1H EMA(8)，趋势金叉/死叉
     adx: float = 25.0                # ADX 趋势强度 (0-100, >25=趋势中)
-    # ── 预解析的卖出记录，供等量匹配逻辑使用 ──
-    sell_execs_raw: list = field(default_factory=list)  # [{price, qty, time_ms}, ...]
+    # ── v5.3: 卖出记录 ──
+    sell_execs_raw: list = None       # 原始卖出执行记录
+    # ── v6.0: 新闻情绪 ──
+    news_sentiment: int = 0           # Claude分析的新闻情绪 (-100~+100)
+    news_confidence: float = 0.0      # 情绪判断的信心 (0~1)
+    news_risk_level: str = "medium"   # 风险级别 (low/medium/high)
+    news_action: str = "hold"         # 建议动作
 
 
 @dataclass
@@ -211,7 +216,7 @@ class SmartStrategy:
         bull_score = 0.0
         bear_score = 0.0
 
-        # 信号1: SMA排列 (权重20% - 降低，短期噪声大)
+        # 信号1: SMA排列 (权重30%)
         alignment = 0
         if s.sma7 > s.sma24: alignment += 1
         else: alignment -= 1
@@ -220,17 +225,17 @@ class SmartStrategy:
         if s.last_price > s.sma7: alignment += 1
         else: alignment -= 1
         if alignment >= 2:
-            bull_score += 20 * (alignment / 3.0)
+            bull_score += 30 * (alignment / 3.0)
         elif alignment <= -2:
-            bear_score += 20 * (abs(alignment) / 3.0)
+            bear_score += 30 * (abs(alignment) / 3.0)
 
-        # 信号2: trend_score (权重20% - 略降)
+        # 信号2: trend_score (权重25%)
         if s.trend_score > 20:
-            bull_score += min(20, s.trend_score * 0.2)
+            bull_score += min(25, s.trend_score * 0.25)
         elif s.trend_score < -20:
-            bear_score += min(20, abs(s.trend_score) * 0.2)
+            bear_score += min(25, abs(s.trend_score) * 0.25)
 
-        # 信号3: 15天长期趋势 (权重15%)
+        # 信号3: 15天长期趋势 (权重15% - 降低权重因为滞后太大)
         if s.long_term_trend_pct > 5:
             bull_score += min(15, s.long_term_trend_pct * 1.0)
         elif s.long_term_trend_pct < -5:
@@ -241,7 +246,7 @@ class SmartStrategy:
             else:
                 bear_score += abs(s.long_term_trend_pct) * 0.5
 
-        # 信号4: 价格相对SMA72位置 (权重10%)
+        # 信号4: 价格相对SMA72位置 (权重10% - 新增，更直接反映趋势)
         if s.sma72 > 0:
             above_sma72 = (s.last_price - s.sma72) / s.sma72 * 100
             if above_sma72 > 2:
@@ -260,14 +265,6 @@ class SmartStrategy:
             bull_score += min(10, (s.rsi14 - 50) * 0.3)
         elif s.rsi14 < 45:
             bear_score += min(10, (50 - s.rsi14) * 0.3)
-
-        # 信号7: 1H趋势 (权重15% - STA fix: 1H金叉是更可靠的中期趋势指标)
-        # 防止短期噪声(价格<SMA7)在1H趋势仍然健康时误判BEAR
-        h1_golden = s.h1_sma7 > s.h1_sma24
-        if h1_golden and s.h1_trend_score > 20:
-            bull_score += min(15, s.h1_trend_score * 0.15)
-        elif not h1_golden and s.h1_trend_score < -20:
-            bear_score += min(15, abs(s.h1_trend_score) * 0.15)
 
         # 分类
         total = bull_score + bear_score
@@ -326,21 +323,20 @@ class SmartStrategy:
             base["rsi_buy"] = max(20, self._base_rsi_oversold - 8)     # v5.0: RSI更低才买
             base["min_confirmation"] = max(3, self._base_min_confirmation + 1)  # v5.1: 多1个确认（was +2）
             base["grid_spacing_pct"] = self._base_grid_spacing_pct * 2.0  # v5.0: 网格间距2倍
-            base["base_trade_pct"] = self._base_base_trade_pct * 0.7    # 熊市交易量减至70%
-            base["max_position_pct"] = min(20, self._base_max_position_pct)  # Fix #10: 熊市仓位上限收紧到20%（was 40%）
+            base["base_trade_pct"] = self._base_base_trade_pct * 0.5    # v5.1: 交易量减至50%（was 40%）
+            base["max_position_pct"] = min(25, self._base_max_position_pct)  # v5.0: 仓位上限25% (was 45%)
             base["stop_loss_pct_raw"] = 4.0  # v5.2: 熊市止损放宽到4%（was 2.5%，SOL常见波动3-5%）
             base["downtrend_breaker_pct"] = 2.5  # v5.0: 下跌2.5%熔断 (was 3.5%)
             base["trend_threshold"] = max(20, self._base_trend_threshold)  # v5.0: 保守趋势判断
             base["sell_dampen"] = 0.7  # v5.0: 熊市更快止盈
             log.info(f"[REGIME] BEAR detected (conf={confidence:.0%}), v5.0 DEFENSIVE MODE")
         elif regime == REGIME_BULL:
-            # 牛市：积极持仓
-            base["rsi_sell"] = min(85, self._base_rsi_overbought + 10)  # RSI更高才卖
-            base["max_above_cost_buy_pct"] = 3.0  # 允许高于成本3%买入
+            # 牛市：适度放宽
+            base["rsi_sell"] = min(80, self._base_rsi_overbought + 5)  # RSI更高才卖
+            base["max_above_cost_buy_pct"] = 2.0  # 允许高于成本2%买入
             base["buy_above_cost_allowed"] = True
-            base["downtrend_breaker_pct"] = 10.0  # 放宽熔断
-            base["sell_dampen"] = 0.3  # 强力压制卖出
-            base["max_position_pct"] = min(80, self._base_max_position_pct + 10)  # 牛市仓位上限更高
+            base["downtrend_breaker_pct"] = 8.0  # 放宽熔断
+            base["sell_dampen"] = 0.5  # 压制卖出
         return base
 
     def _apply_adaptive_params(self, rp: Dict[str, Any]):
@@ -356,6 +352,69 @@ class SmartStrategy:
         self._regime_params = rp
 
     # ── 熔断与保护 ──────────────────────────────────────────
+
+    # ── v6.0 新闻情绪调整 ──────────────────────────────────────
+    def _apply_news_sentiment(self, s: MarketState, buy_score: float, sell_score: float,
+                               buy_sigs: list, sell_sigs: list) -> dict:
+        """
+        根据 Claude 分析的新闻情绪调整买卖分数。
+
+        规则：
+        - 强利好 (score >= 50, conf >= 0.7): 买入加权20%, 卖出减权10%
+        - 轻度利好 (score 20~49): 买入加权10%
+        - 强利空 (score <= -50, conf >= 0.7): 卖出加权20%, 买入减权15%
+        - 轻度利空 (score -49~-20): 卖出加权10%
+        - 高风险 (risk=high): 额外压制买入15%
+        - 中性 (-20~20): 不调整
+        """
+        sentiment = s.news_sentiment
+        conf = s.news_confidence
+        risk = s.news_risk_level
+
+        adj_buy = buy_score
+        adj_sell = sell_score
+        news_tag = ""
+
+        # 利好：放大买入，压制卖出
+        if sentiment >= 50 and conf >= 0.7:
+            adj_buy = buy_score * 1.20 + sentiment * 0.3   # 乘法+加法，确保零分也有效
+            adj_sell = sell_score * 0.90
+            news_tag = f"强利好({sentiment},conf={conf:.0%})"
+            buy_sigs = buy_sigs + [(f"新闻{news_tag}", sentiment * 0.3)]
+        elif sentiment >= 20:
+            adj_buy = buy_score * 1.10 + sentiment * 0.15
+            news_tag = f"轻度利好({sentiment})"
+            if conf >= 0.6:
+                buy_sigs = buy_sigs + [(f"新闻{news_tag}", sentiment * 0.15)]
+
+        # 利空：放大卖出，压制买入
+        elif sentiment <= -50 and conf >= 0.7:
+            adj_sell = sell_score * 1.20 + abs(sentiment) * 0.3  # 零分卖出也能被激活
+            adj_buy = buy_score * 0.85
+            news_tag = f"强利空({sentiment},conf={conf:.0%})"
+            sell_sigs = sell_sigs + [(f"新闻{news_tag}", abs(sentiment) * 0.3)]
+        elif sentiment <= -20:
+            adj_sell = sell_score * 1.10 + abs(sentiment) * 0.15
+            adj_buy = buy_score * 0.95
+            news_tag = f"轻度利空({sentiment})"
+            if conf >= 0.6:
+                sell_sigs = sell_sigs + [(f"新闻{news_tag}", abs(sentiment) * 0.15)]
+
+        # 高风险附加：压制买入（不管买卖方向）
+        if risk == "high":
+            adj_buy = adj_buy * 0.85
+            news_tag += "+高风险"
+
+        if news_tag:
+            log.info(f"[NEWS] 情绪调整: {news_tag} | "
+                     f"buy {buy_score:.0f}→{adj_buy:.0f}, sell {sell_score:.0f}→{adj_sell:.0f}")
+
+        return {
+            "buy_score": adj_buy,
+            "sell_score": adj_sell,
+            "buy_sigs": buy_sigs,
+            "sell_sigs": sell_sigs,
+        }
 
     # v5.0 新增：BTC崩盘门控
     def _check_btc_crash_gate(self, s: MarketState) -> Optional[str]:
@@ -392,22 +451,14 @@ class SmartStrategy:
                         f"且趋势{s.trend_score:.0f}<0，禁止买入")
 
         # ── 核心保护3：15天长期趋势熔断 ──
-        if s.long_term_trend_pct < -3.0 and s.trend_score < 10:
-            return (f"v4.2熔断：15天趋势{s.long_term_trend_pct:+.1f}%（<-3%），"
+        if s.long_term_trend_pct < -5.0 and s.trend_score < 10:
+            return (f"v4.2熔断：15天趋势{s.long_term_trend_pct:+.1f}%（<-5%），"
                     f"市场处于下跌周期，禁止买入")
 
-        # ── 1H级别死亡交叉检测 ──
+        # ── 1H级别死亡交叉检测（仅实盘有数据） ──
         if s.h1_sma7 > 0 and s.h1_sma24 > 0 and s.h1_sma72 > 0:
             if s.h1_sma7 < s.h1_sma24 < s.h1_sma72 and s.last_price < s.h1_sma7:
                 return (f"1H死亡交叉熔断：价格在所有1H均线下方，禁止买入")
-
-        # ── H1趋势负数保护 ──
-        if s.h1_trend_score < -10:
-            return (f"1H趋势偏空({s.h1_trend_score:.0f})，禁止买入")
-
-        # ── 买入冷却时间：上次买入后至少4小时 ──
-        if s.last_buy_time > 0 and self._time_since_min(s.last_buy_time) < 240:
-            return (f"买入冷却中，距上次买入{self._time_since_min(s.last_buy_time):.0f}分钟（需240分钟）")
 
         # ── 连续买入保护 ──
         if s.consecutive_buys >= self.MAX_CONSECUTIVE_BUYS:
@@ -573,14 +624,6 @@ class SmartStrategy:
         if s.last_price <= 0 or math.isnan(s.last_price) or math.isnan(s.rsi14):
             return TradeSignal("HOLD", 0, "数据无效", 0)
 
-        # STA: 低仓位+趋势向上+成本偏离大 → 重置成本（只用h1和15m趋势判断）
-        if (pos < self.min_position_pct and pos > 0 and s.cost_price > 0
-                and s.long_term_trend_pct > 5           # 15天趋势必须明确上涨
-                and s.h1_trend_score > 25              # 1H趋势强正
-                and s.trend_score > 15):               # 15m趋势确认
-            if abs(s.last_price - s.cost_price) / s.cost_price > 0.2:
-                s = MarketState(**{**s.__dict__, 'cost_price': s.last_price, 'original_cost_price': s.last_price})
-
         # 0. 市场状态识别 & 自适应参数
         if self.regime_detection_enabled:
             raw_regime, raw_conf = self._detect_regime(s)
@@ -600,6 +643,16 @@ class SmartStrategy:
         sell_score = sum(sc for _, sc in sell_sigs)
         buy_n = len(buy_sigs)
         sell_n = len(sell_sigs)
+
+        # 2.5 新闻情绪调整（v6.0）
+        if s.news_sentiment != 0 and s.news_confidence >= 0.5:
+            news_adj = self._apply_news_sentiment(s, buy_score, sell_score, buy_sigs, sell_sigs)
+            buy_score = news_adj["buy_score"]
+            sell_score = news_adj["sell_score"]
+            buy_sigs = news_adj["buy_sigs"]
+            sell_sigs = news_adj["sell_sigs"]
+            buy_n = len(buy_sigs)   # 重新计算，新闻信号计入确认数
+            sell_n = len(sell_sigs)
 
         # 3. 止损检查
         stop = self._check_stop_loss(s, pos, last_buy_price)
@@ -667,35 +720,19 @@ class SmartStrategy:
                 buy_score = 0  # 压制常规买入信号
                 buy_n = 0
 
-        # 4. 仓位再平衡（regime切换时平滑过渡，不急卖）
+        # 4. 仓位再平衡（在波动率过滤之前，保护性卖出不应被阻止）
         regime_max = self.max_position_pct
-        # 容忍度：允许超过上限30%再触发，且每次最多减10%
-        if pos > regime_max + 30:
-            excess_pct = pos - regime_max - 20  # 只减超出(上限+20%)的部分
-            sell_pct = min(excess_pct * 0.3, 10)
-            reason = f"仓位再平衡：当前{pos:.0f}%超过体制上限{regime_max:.0f}%，减仓{sell_pct:.0f}%"
-            log.info(f"[REBALANCE] {reason}")
-            return TradeSignal("SELL", max(30, sell_score), reason, sell_pct)
-
-        # Fix #10: 多级趋势逆转退出 — 更早更果断
-        # 级别0（新增）: 15d趋势刚转负 + 1H死叉 → 立即开始减仓，不等到-2%
-        if s.long_term_trend_pct < -1 and s.h1_trend_score < -10 and pos > 25:
-            sell_pct = min(pos - 15, pos * 0.4)
-            if sell_pct > 5:
-                return TradeSignal("SELL", 70,
-                    f"早期趋势减仓: 15d={s.long_term_trend_pct:+.1f}% H1={s.h1_trend_score:.0f}, 减{sell_pct:.0f}%", sell_pct)
-        # 级别1: 趋势确认转负 → 快速减仓到15%
-        if s.long_term_trend_pct < -2 and s.h1_trend_score < 0 and pos > 20:
-            sell_pct = min(pos - 10, pos * 0.6)
-            if sell_pct > 5:
-                return TradeSignal("SELL", 75,
-                    f"趋势减仓: 15d={s.long_term_trend_pct:+.1f}% H1={s.h1_trend_score:.0f}, 减{sell_pct:.0f}%", sell_pct)
-        # 级别2: 趋势深跌 → 几乎清仓到5%
-        if s.long_term_trend_pct < -5 and pos > 10:
-            sell_pct = min(pos - 5, pos * 0.7)
-            if sell_pct > 3:
-                return TradeSignal("SELL", 85,
-                    f"趋势清仓: 15d={s.long_term_trend_pct:+.1f}%, 仓位{pos:.0f}%→{pos-sell_pct:.0f}%", sell_pct)
+        if pos > regime_max + 10:
+            # 成本价保护：卖价必须高于成本价+手续费，防止亏损卖出
+            profit = self._actual_profit_pct(s)
+            if profit <= 0:
+                log.info(f"[REBALANCE] 仓位{pos:.0f}%超上限{regime_max:.0f}%，但当前亏损{profit:.2f}%，不卖")
+            else:
+                excess_pct = pos - regime_max
+                sell_pct = min(excess_pct * 0.5, 20)
+                reason = f"仓位再平衡：当前{pos:.0f}%超过体制上限{regime_max:.0f}%，减仓{sell_pct:.0f}%（盈利{profit:.2f}%）"
+                log.info(f"[REBALANCE] {reason}")
+                return TradeSignal("SELL", max(30, sell_score), reason, sell_pct)
 
         # 4.5 波动率过滤（只阻止买入，不阻止卖出）
         if s.atr_pct > self.max_atr_pct:
@@ -767,12 +804,9 @@ class SmartStrategy:
                     return TradeSignal("HOLD", 0, f"{regime_tag}仓位过低({pos:.1f}%)", 0)
             else:
                 sig = self._process_sell(s, pos, sell_score, sell_sigs, last_buy_price)
-                if sig.action != "HOLD":
-                    if regime_tag:
-                        sig.reason = f"{regime_tag} {sig.reason}"
-                    return sig
-                # STA fix: 卖出被保护拦住时(HOLD)，不直接返回，
-                # fallthrough到趋势跟踪，让上涨趋势中也能买入
+                if regime_tag and sig.action != "HOLD":
+                    sig.reason = f"{regime_tag} {sig.reason}"
+                return sig
 
         # ── v5.2: 信号不明确时或极低仓位时，尝试趋势跟踪和Smart DCA ──
 
@@ -852,15 +886,11 @@ class SmartStrategy:
             if diff < -dynamic_grid:
                 label = "卖出均价" if self._using_sell_avg(s) else "成本价"
                 buy.append((f"价格低于{label}", abs(diff) * 5))
-        # STA fix: scalp模式下卖出网格也用ref_cost（卖出均价），而非FIFO成本
-        # 修复FIFO成本$82远低于当前交易区间$84时，"价格高于成本价"信号永远触发的问题
-        # 导致每10分钟卖一次的过度交易/churning
-        sell_cost_ref = self._ref_cost(s) if self._using_sell_avg(s) else self._actual_cost(s)
-        if sell_cost_ref > 0 and s.last_price > 0:
-            sd = self._pct_diff(s.last_price, sell_cost_ref)
+        actual = self._actual_cost(s)
+        if actual > 0 and s.last_price > 0:
+            sd = self._pct_diff(s.last_price, actual)
             if sd > dynamic_grid:
-                label = "卖出均价" if self._using_sell_avg(s) else "成本价"
-                sell.append((f"价格高于{label}", sd * 5))
+                sell.append(("价格高于成本价", sd * 5))
 
         # 6. 支撑阻力位（区间>3%时生效，修复窄区间矛盾信号）
         if s.support > 0 and s.resistance > 0 and s.last_price > 0:
@@ -1153,16 +1183,6 @@ class SmartStrategy:
         sma_tag = f"<SMA72(${s.sma72:.0f})" if below_sma72 else f">SMA72(${s.sma72:.0f})"
         reason = f"Smart DCA({mode}): ${s.last_price:.2f}{sma_tag}, RSI={s.rsi14:.0f}, 趋势={s.trend_score:.0f}, 投{base_pct:.1f}%"
         log.info(f"[DCA] {reason}")
-        # 趋势DCA低仓位时防高买低卖：仅趋势DCA(价格>SMA72)时检查，低位DCA不受限
-        if mode == "趋势" and pos < 15 and s.sell_execs_raw and s.last_price > 0:
-            from cost import get_matched_sell_price
-            _qty = s.usdt_balance / s.last_price if s.usdt_balance > 0 else 0.0
-            _matched = get_matched_sell_price(s.sell_execs_raw, _qty, max_hours=48) if _qty > 0 else None
-            if _matched is not None:
-                _, _msp = _matched
-                if s.last_price > _msp * 1.003:
-                    return TradeSignal("HOLD", 0,
-                        f"趋势DCA低仓位建仓：当前价${s.last_price:.4f} > 48h等量卖价${_msp:.4f}×1.003，HOLD", 0)
         return TradeSignal("BUY", 40, reason, base_pct)
 
     # ── v5.2 趋势跟踪（捕获大行情）────────────────────────────
@@ -1183,67 +1203,16 @@ class SmartStrategy:
         rsi_ok = 30 < s.rsi14 < 65                       # RSI适中区间
 
         trend_score_count = sum([h1_golden, h1_positive, trend_up, lt_up, not_bear, adx_trend, rsi_ok])
-
-        # STA fix #8: 价格远低于1H SMA7时不追涨 — 金叉即将失效，避免接飞刀
-        # 1H SMA极度滞后（如SMA7=85.04但价格已跌到83.50），金叉仍"技术性"成立
-        # 但实际上趋势已经破坏，继续买入只会套在高位
-        if h1_golden and s.h1_sma7 > 0 and s.last_price > 0:
-            price_below_sma7_pct = (s.h1_sma7 - s.last_price) / s.h1_sma7 * 100
-            if price_below_sma7_pct > 1.5:
-                log.info(f"[TREND] 金叉滞后保护: 价格${s.last_price:.2f}低于SMA7 ${s.h1_sma7:.2f} {price_below_sma7_pct:.1f}%，跳过趋势买入")
-                return None
-
-        # 止损/趋势减仓后冷却8小时，防止刚减完就买回来
-        if s.last_stop_loss_time > 0 and self._time_since_min(s.last_stop_loss_time) < 480:
-            return None
-        # 普通冷却：牛市1小时，其他2小时；低仓位加速建仓
-        _cooldown = 60 if s.regime == REGIME_BULL else 120
-        if pos < 15:
-            _cooldown = min(_cooldown, 30)   # 低仓位(<15%)最多30分钟冷却，加速建仓
-        elif pos < 25:
-            _cooldown = min(_cooldown, 60)   # 中低仓位最多60分钟
-        if s.last_buy_time > 0 and self._time_since_min(s.last_buy_time) < _cooldown:
+        # 冷却2小时
+        if s.last_buy_time > 0 and self._time_since_min(s.last_buy_time) < 120:
             return None
         if trend_score_count >= 4 and not_bear:  # 7条件满足4个+非熊市
             effective_max = getattr(self, '_dynamic_max_pos', self.max_position_pct)
-
-            # STA fix #9: SIDEWAYS行情趋势跟踪仓位上限
-            # SIDEWAYS方向不确定，不应像BULL一样堆到65%
-            # 避免在震荡中高仓位被趋势反转强制大额减仓亏损
-            if s.regime != REGIME_BULL:
-                sideways_max = 40  # SIDEWAYS最多40%
-                if s.long_term_trend_pct < -1:
-                    sideways_max = 30  # 15d趋势已转负，更保守
-                effective_max = min(effective_max, sideways_max)
-
             if pos < effective_max:
-                # 牛市中更激进建仓，其他市况正常
-                _trend_buy_max = 12.0 if s.regime == REGIME_BULL else 8.0
-                buy_pct = min(_trend_buy_max, effective_max - pos)
-
-                # 15d趋势深跌时限制趋势买入量
-                if s.long_term_trend_pct < -3:
-                    if trend_score_count < 5:
-                        return None  # 15d深跌需要5/7确认
-                    buy_pct = min(buy_pct, 6.0)
-
-                # 高仓位时限速：仓位>50%且非强势牛市，限制单笔
-                if pos > 50 and not (s.regime == REGIME_BULL and s.long_term_trend_pct > 3):
-                    buy_pct = min(buy_pct, 4.0)
-
+                buy_pct = min(6.0, effective_max - pos)  # 从8%降到6%
                 reason = (f"趋势跟踪买入: 1H金叉(SMA7={s.h1_sma7:.2f}>SMA24={s.h1_sma24:.2f}), "
                           f"趋势={s.h1_trend_score:.0f}, ADX={s.adx:.0f}, 15d趋势={s.long_term_trend_pct:+.1f}%")
                 log.info(f"[TREND] {reason}")
-                # 检查48h等量卖价，当前价 > 卖价×1.003 则HOLD，防止高买低卖（全仓位适用）
-                if s.sell_execs_raw and s.last_price > 0:
-                    from cost import get_matched_sell_price
-                    _qty = s.usdt_balance / s.last_price if s.usdt_balance > 0 else 0.0
-                    _matched = get_matched_sell_price(s.sell_execs_raw, _qty, max_hours=48) if _qty > 0 else None
-                    if _matched is not None:
-                        _, _msp = _matched
-                        if s.last_price > _msp * 1.003:
-                            return TradeSignal("HOLD", 0,
-                                f"趋势跟踪高买低卖保护：当前价${s.last_price:.4f} > 48h等量卖价${_msp:.4f}×1.003，HOLD", 0)
                 return TradeSignal("BUY", 60, reason, buy_pct)
 
         # --- 趋势退出（1H趋势转负+有利润）---
@@ -1302,16 +1271,6 @@ class SmartStrategy:
         elif pos < 15 and not is_strong_down and not is_mod_down:
             max_rise = 10.0 if pos < 3 else (6.0 if pos < 5 else (3.0 if pos < 10 else 2.0))
             if price_rise <= max_rise and (s.bb_position < 0.55 or is_strong_up):
-                # 检查48h等量卖价：当前价 > 卖价×1.003 则HOLD，防止低仓位高买
-                if s.sell_execs_raw and s.last_price > 0:
-                    from cost import get_matched_sell_price
-                    _qty = s.usdt_balance / s.last_price if s.usdt_balance > 0 else 0.0
-                    _matched = get_matched_sell_price(s.sell_execs_raw, _qty, max_hours=48) if _qty > 0 else None
-                    if _matched is not None:
-                        _, _msp = _matched
-                        if s.last_price > _msp * 1.003:
-                            return TradeSignal("HOLD", 0,
-                                f"低仓位建仓：当前价${s.last_price:.4f} > 48h等量卖价${_msp:.4f}×1.003，HOLD", 0)
                 trend_m = 0.4 if pos < 5 else 0.3
                 depth_m = 0.4 if pos < 5 else 0.3
                 reason += f" | 低仓位({pos:.1f}%)建仓"
@@ -1341,6 +1300,16 @@ class SmartStrategy:
                     trend_m = 0.5 + 0.3 * (1.0 - price_rise / max_above)
                     depth_m = 0.4
                     reason += f" | 牛市趋势买入(高于成本{price_rise:.1f}%<{max_above:.1f}%)"
+                    is_special_buy = True
+                elif pos < 15 and confidence >= 40 and s.regime != "BEAR":
+                    # STA: 低仓位+强信号+非熊 → 允许高于成本小额建仓
+                    trend_m = 0.3
+                    depth_m = 0.2
+                    # 硬上限：高于成本建仓最多到10%
+                    if pos >= 10:
+                        return TradeSignal("HOLD", 0,
+                            f"高于成本建仓已达10%上限({pos:.0f}%)", 0)
+                    reason += f" | 信号建仓(高于成本{price_rise:.1f}%,仓位{pos:.0f}%)"
                     is_special_buy = True
                 else:
                     return TradeSignal("HOLD", 0,
@@ -1375,8 +1344,8 @@ class SmartStrategy:
             elif price_drop < 2.0: depth_m = 0.5
             elif price_drop < 3.0: depth_m = 0.8
             else: depth_m = 1.0
-        if pdiff > 0 and not (is_special_buy and pos < 15):
-            depth_m *= 0.7  # 低仓位建仓时跳过above-cost惩罚
+        if pdiff > 0:
+            depth_m *= 0.7
 
         # 计算仓位
         position_pct = self._calc_position(
@@ -1387,9 +1356,6 @@ class SmartStrategy:
             position_pct *= 1.3
         elif is_mod_up and pos < 20:
             position_pct *= 1.15
-        # STA fix: 低仓位建仓保底，确保至少能达到最小交易金额
-        if pos < 15 and is_special_buy:
-            position_pct = max(position_pct, self.base_trade_pct * 0.8)
 
         position_pct = min(position_pct, self.max_position_pct - pos)
 
@@ -1402,24 +1368,6 @@ class SmartStrategy:
         if not self._check_edge(s, "BUY"):
             return TradeSignal("HOLD", 0, "利润空间不足", 0)
 
-        # 防高买低卖保护：当前价高于近期等量卖出均价0.3%以上时拦截
-        # 覆盖本方法所有买入路径（含 pos<15 低仓位建仓、强/中上涨回调、回调买入、牛市追涨）
-        if s.sell_execs_raw and s.last_price > 0 and total_bal > 0 and position_pct > 0:
-            from cost import get_matched_sell_price
-            target_qty = total_bal * position_pct / 100 / s.last_price
-            matched = get_matched_sell_price(s.sell_execs_raw, target_qty, max_hours=48)
-            if matched is not None:
-                _, matched_sell_price = matched
-                if s.last_price > matched_sell_price * 1.003:
-                    log.info(
-                        f"[BUY BLOCK] 高买低卖保护: 当前价${s.last_price:.4f} > "
-                        f"近期等量卖价${matched_sell_price:.4f}×1.003=${matched_sell_price * 1.003:.4f}, "
-                        f"pos={pos:.1f}%, 计划买入{position_pct:.2f}%, qty≈{target_qty:.4f}"
-                    )
-                    return TradeSignal("HOLD", 0,
-                        f"高买低卖保护：当前价${s.last_price:.4f}高于近期等量卖价"
-                        f"${matched_sell_price:.4f}×1.003(${matched_sell_price * 1.003:.4f})", 0)
-
         return TradeSignal("BUY", confidence, reason, position_pct)
 
     # ── 特殊买入 ──────────────────────────────────────────────
@@ -1429,54 +1377,36 @@ class SmartStrategy:
         is_up = s.trend_score > 15
 
         # USDT主导 + 分批买入 v3.4: scalp降低USDT门槛，更快回补仓位
-        # v5.3: 改用等量匹配卖出价（48h内加权均价），替代大杂烩历史均价
         usdt_threshold = 50 if self.scalp_mode else 60
-        if s.usdt_pct > usdt_threshold and s.last_price > 0 and s.sell_execs_raw:
-            from cost import get_matched_sell_price
-            # 用当前全部USDT可购币量作为上限，找48h内对应的加权均卖价
-            initial_target_qty = s.usdt_balance / s.last_price if s.usdt_balance > 0 else 0.0
-            matched = get_matched_sell_price(s.sell_execs_raw, initial_target_qty, max_hours=48) if initial_target_qty > 0 else None
+        if s.avg_sell_price > 0 and s.usdt_pct > usdt_threshold and s.last_price < s.avg_sell_price:
+            pm = self._profit_margin(s.avg_sell_price, s.last_price)
+            batch = self._check_batch_buy(s, pos, total_bal)
+            min_req = (0.4 if self.scalp_mode else self.MIN_PROFIT_FIRST_PCT) if not batch else (0.4 if self.scalp_mode else self.MIN_PROFIT_PCT)
 
-            if matched is not None:
-                matched_qty, matched_sell_price = matched
+            if pm >= min_req:
+                if s.last_sell_time > 0 and self._time_since_min(s.last_sell_time) < self.SELL_COOLDOWN_MIN:
+                    return TradeSignal("HOLD", 0,
+                        f"USDT主导，套利空间{pm:.1f}%，但卖出冷却中", 0)
 
-                if s.last_price < matched_sell_price:
-                    pm = self._profit_margin(matched_sell_price, s.last_price)
-                    batch = self._check_batch_buy(s, pos, total_bal)
-                    min_req = (0.4 if self.scalp_mode else self.MIN_PROFIT_FIRST_PCT) if not batch else (0.4 if self.scalp_mode else self.MIN_PROFIT_PCT)
-                    min_req = max(0.5, min_req)  # 门槛不低于0.5%
-
-                    if pm >= min_req:
-                        if s.last_sell_time > 0 and self._time_since_min(s.last_sell_time) < self.SELL_COOLDOWN_MIN:
-                            return TradeSignal("HOLD", 0,
-                                f"USDT主导，套利空间{pm:.1f}%，但卖出冷却中", 0)
-
-                        if batch:
-                            pct_buy = batch["position_pct"]
-                            reason = batch["reason"]
-                        else:
-                            usage = self._usdt_usage_pct(pm, s.usdt_pct)
-                            if total_bal > 0 and s.last_price > 0:
-                                buy_val = s.usdt_balance * (usage / 100)
-                                target = (buy_val / total_bal) * 100
-                                pct_buy = min(target * self.BATCH_RATIOS[0], self.max_position_pct - pos)
-                            else:
-                                pct_buy = self.base_trade_pct * 0.5
-                            reason = f"分批买入第1批 | USDT占比{s.usdt_pct:.1f}%，套利空间{pm:.1f}% (匹配卖价${matched_sell_price:.4f})"
-
-                        # 如果48h内累计卖出量不足目标买入量，只买累计到的量，不超买
-                        if matched_qty < initial_target_qty and total_bal > 0:
-                            capped_pct = (matched_qty * s.last_price / total_bal) * 100
-                            if capped_pct < pct_buy:
-                                pct_buy = capped_pct
-                                reason += f" | 48h卖出{matched_qty:.3f}枚，限量买入"
-
-                        if not self._check_edge(s, "BUY"):
-                            return TradeSignal("HOLD", 0, "利润空间不足", 0)
-                        return TradeSignal("BUY", 70, reason, max(pct_buy, self.base_trade_pct * 0.3))
+                if batch:
+                    pct_buy = batch["position_pct"]
+                    reason = batch["reason"]
+                else:
+                    usage = self._usdt_usage_pct(pm, s.usdt_pct)
+                    if total_bal > 0 and s.last_price > 0:
+                        buy_val = s.usdt_balance * (usage / 100)
+                        target = (buy_val / total_bal) * 100
+                        pct_buy = min(target * self.BATCH_RATIOS[0], self.max_position_pct - pos)
                     else:
-                        return TradeSignal("HOLD", 0,
-                            f"USDT占比{s.usdt_pct:.1f}%，套利空间{pm:.1f}%不足(需≥{min_req:.1f}%) (匹配卖价${matched_sell_price:.4f})", 0)
+                        pct_buy = self.base_trade_pct * 0.5
+                    reason = f"分批买入第1批 | USDT占比{s.usdt_pct:.1f}%，套利空间{pm:.1f}%"
+
+                if not self._check_edge(s, "BUY"):
+                    return TradeSignal("HOLD", 0, "利润空间不足", 0)
+                return TradeSignal("BUY", 70, reason, max(pct_buy, self.base_trade_pct * 0.3))
+            else:
+                return TradeSignal("HOLD", 0,
+                    f"USDT占比{s.usdt_pct:.1f}%，套利空间{pm:.1f}%不足(需≥{min_req:.1f}%)", 0)
 
         # 回调买入（趋势中卖出后价格回调）v3.4: scalp放宽回调门槛
         if is_up and s.last_sell_price > 0 and s.last_price < s.last_sell_price:
@@ -1604,16 +1534,7 @@ class SmartStrategy:
         if self.leverage > 1 and s.long_term_trend_pct > 5:
             effective_min = max(effective_min, 25)
         if is_strong_up and profit < 8.0:
-            effective_min = max(effective_min, 35 if self.leverage <= 1 else 40)
-        elif is_mod_up and profit < 5.0:
-            effective_min = max(effective_min, 25 if self.leverage <= 1 else 30)
-        # STA fix: 1H趋势保护 — 短期trend_score可能转负，但1H金叉仍在时不应卖光
-        # 防止在小时级上涨中因分钟级MACD/趋势噪音而清仓
-        h1_golden = s.h1_sma7 > s.h1_sma24
-        if h1_golden and s.h1_trend_score > 20 and profit < 5.0:
-            effective_min = max(effective_min, 25)
-        elif h1_golden and s.h1_trend_score > 0 and profit < 3.0:
-            effective_min = max(effective_min, 15)
+            effective_min = max(effective_min, 20 if self.leverage <= 1 else 30)
         if pos <= effective_min:
             return TradeSignal("HOLD", 0,
                 f"上涨趋势保护仓位>{effective_min:.0f}%(当前{pos:.0f}%，盈利{profit:.1f}%)", 0)
@@ -1643,16 +1564,13 @@ class SmartStrategy:
             early_n, early_reasons = self._early_bearish(s, pullback)
             is_full_profit = pos >= self.max_position_pct and profit > self.MIN_PROFIT_PCT
 
-            # 提前预警：大仓位(>25%)降低门槛快速减仓，小仓位提高门槛避免碎片卖出
-            early_profit_req = 0.5 if pos > 25 else 1.5
-            early_signal_req = 2 if pos > 25 else 3
-            if early_n >= early_signal_req and profit > early_profit_req:
+            if early_n >= 2 and profit > 0.3:
                 # 预警卖出
-                if profit >= 3.0 and early_n >= 4:
+                if profit >= 2.0 and early_n >= 3:
                     depth_m, trend_m = 0.6, 0.7
-                elif profit >= 2.0 and early_n >= 3:
-                    depth_m, trend_m = 0.4, 0.6
                 elif profit >= 1.5:
+                    depth_m, trend_m = 0.4, 0.6
+                elif profit >= 0.8:
                     depth_m, trend_m = 0.3, 0.5
                 else:
                     depth_m, trend_m = 0.2, 0.4
@@ -1669,11 +1587,11 @@ class SmartStrategy:
 
             # 刚买入后反弹保护（自适应）v4.1: 平衡利润和机会
             if s.regime == REGIME_BULL:
-                min_sell_profit = 2.5   # 牛市：让利润充分奔跑
+                min_sell_profit = 1.5   # 牛市：让利润跑但不贪
             elif s.regime == REGIME_BEAR:
-                min_sell_profit = 1.0   # 熊市：有利润锁定但不要太急
+                min_sell_profit = 0.5   # 熊市：有利润就锁定
             else:
-                min_sell_profit = 1.5   # 横盘：至少1.5%才卖
+                min_sell_profit = 0.8   # 横盘：0.8%即可
             if profit > 0 and recovery > 0.5 and not is_full_profit:
                 if profit < min_sell_profit:
                     return TradeSignal("HOLD", 0,
@@ -1720,7 +1638,7 @@ class SmartStrategy:
         if not is_stop and not self._check_edge(s, "SELL"):
             return TradeSignal("HOLD", 0, "利润空间不足", 0)
 
-        return TradeSignal("SELL", confidence, reason, max(position_pct, self.base_trade_pct * 0.8))
+        return TradeSignal("SELL", confidence, reason, max(position_pct, self.base_trade_pct * 0.3))
 
     # ── 上涨趋势卖出乘数查表 ──────────────────────────────────
 
@@ -1839,11 +1757,6 @@ class SmartStrategy:
             _lev_ambig = self.leverage > 1 and abs(s.long_term_trend_pct) < 3
             _min_pdiff = fee_pct * 2  # 至少高于成本 2倍手续费才值得买
             pullback = self._pullback(s)
-            # STA fix: 低仓位(<15%)时放宽边际检查，避免空仓踏空上涨趋势
-            # 仓位极低时买入风险很小，不应被严格的边际检查阻止
-            if s.base_pct < 15 and s.usdt_pct > 70 and pdiff > 0 and pdiff <= 2.0:
-                if s.trend_score > 15 or s.long_term_trend_pct > 0:
-                    return True
             # 牛市自适应：允许更大的价格偏离
             rp = self._regime_params if self._regime_params else {}
             max_above = rp.get("max_above_cost_buy_pct", 0)
