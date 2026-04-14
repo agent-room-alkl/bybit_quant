@@ -375,29 +375,33 @@ class SmartStrategy:
         adj_sell = sell_score
         news_tag = ""
 
-        # 利好
+        # 利好：放大买入，压制卖出
         if sentiment >= 50 and conf >= 0.7:
-            adj_buy = buy_score * 1.20
+            adj_buy = buy_score * 1.20 + sentiment * 0.3   # 乘法+加法，确保零分也有效
             adj_sell = sell_score * 0.90
             news_tag = f"强利好({sentiment},conf={conf:.0%})"
             buy_sigs = buy_sigs + [(f"新闻{news_tag}", sentiment * 0.3)]
         elif sentiment >= 20:
-            adj_buy = buy_score * 1.10
+            adj_buy = buy_score * 1.10 + sentiment * 0.15
             news_tag = f"轻度利好({sentiment})"
+            if conf >= 0.6:
+                buy_sigs = buy_sigs + [(f"新闻{news_tag}", sentiment * 0.15)]
 
-        # 利空
+        # 利空：放大卖出，压制买入
         elif sentiment <= -50 and conf >= 0.7:
-            adj_sell = sell_score * 1.20
+            adj_sell = sell_score * 1.20 + abs(sentiment) * 0.3  # 零分卖出也能被激活
             adj_buy = buy_score * 0.85
             news_tag = f"强利空({sentiment},conf={conf:.0%})"
             sell_sigs = sell_sigs + [(f"新闻{news_tag}", abs(sentiment) * 0.3)]
         elif sentiment <= -20:
-            adj_sell = sell_score * 1.10
+            adj_sell = sell_score * 1.10 + abs(sentiment) * 0.15
             adj_buy = buy_score * 0.95
             news_tag = f"轻度利空({sentiment})"
+            if conf >= 0.6:
+                sell_sigs = sell_sigs + [(f"新闻{news_tag}", abs(sentiment) * 0.15)]
 
-        # 高风险附加
-        if risk == "high" and adj_buy > adj_sell:
+        # 高风险附加：压制买入（不管买卖方向）
+        if risk == "high":
             adj_buy = adj_buy * 0.85
             news_tag += "+高风险"
 
@@ -647,6 +651,8 @@ class SmartStrategy:
             sell_score = news_adj["sell_score"]
             buy_sigs = news_adj["buy_sigs"]
             sell_sigs = news_adj["sell_sigs"]
+            buy_n = len(buy_sigs)   # 重新计算，新闻信号计入确认数
+            sell_n = len(sell_sigs)
 
         # 3. 止损检查
         stop = self._check_stop_loss(s, pos, last_buy_price)

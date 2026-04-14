@@ -50,6 +50,6 @@
   "gpt_api_key": "YOUR_OPENAI_API_KEY",
   "gpt_model": "gpt-4o",
   "claude_api_key": "YOUR_ANTHROPIC_API_KEY",
-  "claude_model": "claude-sonnet-4-20250514"
+  "claude_model": "claude-sonnet-4-6"
 }
 

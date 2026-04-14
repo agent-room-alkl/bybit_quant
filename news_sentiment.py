@@ -194,6 +194,8 @@ def get_news_sentiment(api_key: str, model: str = "gpt-4o") -> Dict[str, Any]:
         age = time.time() - _cache["timestamp"]
         if _cache["timestamp"] > 0 and age < CACHE_TTL_SEC:
             return {**_cache, "cached": True, "age_min": round(age / 60, 1)}
+        # 立即占位，防止其他线程也发起 API 调用
+        _cache["timestamp"] = time.time()
 
     # 缓存过期，重新分析
     if not api_key:
@@ -215,16 +217,17 @@ def get_news_sentiment(api_key: str, model: str = "gpt-4o") -> Dict[str, Any]:
     # 2. GPT 分析
     result = _call_llm_api(api_key, headlines, model)
 
-    # 3. 更新缓存
+    # 3. 更新缓存并在锁内复制返回值
     with _lock:
         _cache = {
             **result,
-            "headlines": headlines,
+            "headlines": headlines[:],  # 深拷贝列表
             "timestamp": time.time(),
             "error": None,
         }
+        ret = {**_cache, "cached": False, "age_min": 0}
 
-    return {**_cache, "cached": False, "age_min": 0}
+    return ret
 
 
 def get_cached_score() -> int:

@@ -49,14 +49,31 @@ def _nz_today_str() -> str:
     return now_nz.strftime("%Y%m%d")
 
 
+import threading as _threading
+
+def _refresh_news_bg(api_key: str, model: str):
+    """后台线程刷新新闻缓存"""
+    try:
+        get_news_sentiment(api_key, model)
+    except Exception as e:
+        log.warning(f"[NEWS] 后台刷新失败: {e}")
+
 def _get_news_fields(cfg: dict) -> dict:
-    """获取新闻情绪字段，带缓存，不影响主流程性能"""
+    """获取新闻情绪字段，永远返回缓存数据，不阻塞主循环"""
     try:
         api_key = cfg.get("gpt_api_key", "")
         model = cfg.get("gpt_model", "gpt-4o")
         if not api_key:
             return {}
-        sentiment = get_news_sentiment(api_key, model)
+
+        # 始终读缓存（不阻塞）
+        sentiment = get_cached_sentiment()
+
+        # 缓存过期时，后台线程刷新，不阻塞交易循环
+        if sentiment.get("age_min", 999) > 30:
+            _threading.Thread(target=_refresh_news_bg, args=(api_key, model), daemon=True).start()
+            log.info("[NEWS] 缓存过期，后台刷新新闻情绪...")
+
         return {
             "news_sentiment": sentiment.get("score", 0),
             "news_confidence": sentiment.get("confidence", 0.0),
