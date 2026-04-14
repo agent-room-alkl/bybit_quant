@@ -2039,21 +2039,20 @@ async def dashboard(request: Request):
                         <div class="indicator-status">RESISTANCE</div>
                     </div>
                 </div>
-            </div>
-        </div>
-        
-        <!-- 新闻情绪 -->
-        <div class="card" id="news-card" style="margin-bottom:16px;">
-            <div class="chart-title">📰 新闻情绪 NEWS SENTIMENT</div>
-            <div style="display:flex;align-items:center;gap:20px;margin:10px 0;">
-                <div style="text-align:center;min-width:80px;">
-                    <div id="news-score" style="font-size:2em;font-weight:bold;color:#888;">--</div>
-                    <div id="news-label" style="font-size:0.85em;color:#666;">加载中</div>
-                </div>
-                <div style="flex:1;">
-                    <div id="news-summary" style="color:#aaa;font-size:0.9em;margin-bottom:8px;">--</div>
-                    <div id="news-factors" style="display:flex;flex-direction:column;gap:4px;"></div>
-                    <div id="news-age" style="color:#555;font-size:0.75em;margin-top:6px;"></div>
+                <!-- 新闻情绪 NEWS SENTIMENT (嵌入在技术指标卡片内) -->
+                <div id="news-card" style="margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);">
+                    <div class="chart-title" style="margin-bottom:8px;">📰 新闻情绪 NEWS SENTIMENT</div>
+                    <div style="display:flex;align-items:center;gap:20px;margin:4px 0 0 0;">
+                        <div style="text-align:center;min-width:80px;">
+                            <div id="news-score" style="font-size:2em;font-weight:bold;color:#888;">--</div>
+                            <div id="news-label" style="font-size:0.85em;color:#666;">加载中</div>
+                        </div>
+                        <div style="flex:1;">
+                            <div id="news-summary" style="color:#aaa;font-size:0.9em;margin-bottom:8px;">--</div>
+                            <div id="news-factors" style="display:flex;flex-direction:column;gap:4px;"></div>
+                            <div id="news-age" style="color:#555;font-size:0.75em;margin-top:6px;"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
