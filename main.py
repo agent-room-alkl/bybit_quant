@@ -682,6 +682,22 @@ async def get_indicators():
             "condition": market.get("condition", "unknown"),
         }
 
+        # === 新闻情绪数据 ===
+        try:
+            from news_sentiment import get_cached_sentiment
+            news = get_cached_sentiment()
+            data["news_sentiment"] = news.get("score", 0)
+            data["news_confidence"] = news.get("confidence", 0)
+            data["news_risk_level"] = news.get("risk_level", "medium")
+            data["news_action"] = news.get("suggested_action", "hold")
+            data["news_summary"] = news.get("summary", "")
+            data["news_key_factors"] = news.get("key_factors", [])[:3]
+            data["news_age_min"] = news.get("age_min", 999)
+        except Exception:
+            data["news_sentiment"] = 0
+            data["news_key_factors"] = []
+            data["news_summary"] = ""
+
         # 统一处理 NaN/Inf，避免 Out of range float JSON 错误
         clean_data = make_json_serializable(data)
         _indicators_cache["data"] = clean_data
@@ -2026,6 +2042,22 @@ async def dashboard(request: Request):
             </div>
         </div>
         
+        <!-- 新闻情绪 -->
+        <div class="card" id="news-card" style="margin-bottom:16px;">
+            <div class="chart-title">📰 新闻情绪 NEWS SENTIMENT</div>
+            <div style="display:flex;align-items:center;gap:20px;margin:10px 0;">
+                <div style="text-align:center;min-width:80px;">
+                    <div id="news-score" style="font-size:2em;font-weight:bold;color:#888;">--</div>
+                    <div id="news-label" style="font-size:0.85em;color:#666;">加载中</div>
+                </div>
+                <div style="flex:1;">
+                    <div id="news-summary" style="color:#aaa;font-size:0.9em;margin-bottom:8px;">--</div>
+                    <div id="news-factors" style="display:flex;flex-direction:column;gap:4px;"></div>
+                    <div id="news-age" style="color:#555;font-size:0.75em;margin-top:6px;"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- 图表区域 -->
         <div class="grid-3">
             <div class="card">
@@ -2678,8 +2710,35 @@ async def dashboard(request: Request):
                     signalBar.style.background = '#ffa502';
                 }}
                 signalBar.style.width = strength + '%';
+
+                // 新闻情绪更新
+                const ns = ind.news_sentiment || 0;
+                const nf = ind.news_key_factors || [];
+                const nsEl = document.getElementById('news-score');
+                const nlEl = document.getElementById('news-label');
+                if (nsEl) {{
+                    nsEl.textContent = ns > 0 ? '+' + ns : ns;
+                    nsEl.style.color = ns >= 30 ? '#00ff88' : ns <= -30 ? '#ff4757' : ns > 0 ? '#7bed9f' : ns < 0 ? '#ff6b81' : '#888';
+                    const actions = {{'aggressive_buy':'强烈看多','cautious_buy':'谨慎看多','hold':'中性','cautious_sell':'谨慎看空','aggressive_sell':'强烈看空'}};
+                    nlEl.textContent = actions[ind.news_action] || '中性';
+                    nlEl.style.color = nsEl.style.color;
+                }}
+                const smEl = document.getElementById('news-summary');
+                if (smEl) smEl.textContent = ind.news_summary || '暂无数据';
+                const ffEl = document.getElementById('news-factors');
+                if (ffEl) {{
+                    ffEl.innerHTML = nf.map((f, i) => {{
+                        const colors = ['#ffa502', '#70a1ff', '#7bed9f'];
+                        return '<div style="font-size:0.85em;"><span style="color:' + colors[i % 3] + '">▸</span> ' + f + '</div>';
+                    }}).join('');
+                }}
+                const ageEl = document.getElementById('news-age');
+                if (ageEl) {{
+                    const age = ind.news_age_min || 0;
+                    ageEl.textContent = age < 999 ? '更新于 ' + Math.round(age) + ' 分钟前' : '尚未获取';
+                }}
             }}
-            
+
             // 交易记录（挂单+已成交）
             const trades = await fetch('/api/trades').then(r => r.json());
             if (Array.isArray(trades)) {{

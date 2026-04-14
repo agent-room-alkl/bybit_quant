@@ -192,7 +192,9 @@ def get_news_sentiment(api_key: str, model: str = "gpt-4o") -> Dict[str, Any]:
 
     with _lock:
         age = time.time() - _cache["timestamp"]
-        if _cache["timestamp"] > 0 and age < CACHE_TTL_SEC:
+        # 只有当缓存有实际数据（score != 0 或 summary 非空）且未过期时才返回
+        has_data = _cache.get("summary", "") != "" or _cache.get("score", 0) != 0
+        if _cache["timestamp"] > 0 and age < CACHE_TTL_SEC and has_data:
             return {**_cache, "cached": True, "age_min": round(age / 60, 1)}
         # 立即占位，防止其他线程也发起 API 调用
         _cache["timestamp"] = time.time()

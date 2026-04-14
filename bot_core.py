@@ -18,7 +18,7 @@ from indicators import klines_to_df, enrich_indicators, get_market_condition
 from db import init_db, log_trade, log_signal, set_meta, get_meta
 from cost import get_spot_avg_cost, get_spot_avg_cost_by_position, get_cost_price
 from strategy_v5 import should_trade_gate, SmartStrategy, MarketState, create_smart_strategy
-from news_sentiment import get_news_sentiment, get_cached_score
+from news_sentiment import get_news_sentiment, get_cached_score, get_cached_sentiment
 
 log = logging.getLogger("auto_bot")
 if not log.handlers:
@@ -54,25 +54,39 @@ import threading as _threading
 def _refresh_news_bg(api_key: str, model: str):
     """后台线程刷新新闻缓存"""
     try:
-        get_news_sentiment(api_key, model)
+        log.info(f"[NEWS] 后台线程开始刷新...")
+        result = get_news_sentiment(api_key, model)
+        log.info(f"[NEWS] 后台刷新完成: score={result.get('score',0)}, summary={result.get('summary','')[:50]}")
     except Exception as e:
         log.warning(f"[NEWS] 后台刷新失败: {e}")
+        import traceback
+        log.warning(traceback.format_exc())
+
+_news_first_fetch_done = False
 
 def _get_news_fields(cfg: dict) -> dict:
-    """获取新闻情绪字段，永远返回缓存数据，不阻塞主循环"""
+    """获取新闻情绪字段，首次同步获取，后续后台刷新"""
+    global _news_first_fetch_done
     try:
         api_key = cfg.get("gpt_api_key", "")
         model = cfg.get("gpt_model", "gpt-4o")
         if not api_key:
             return {}
 
-        # 始终读缓存（不阻塞）
-        sentiment = get_cached_sentiment()
-
-        # 缓存过期时，后台线程刷新，不阻塞交易循环
-        if sentiment.get("age_min", 999) > 60:
+        # 首次启动：同步获取一次（最多等30秒）
+        if not _news_first_fetch_done:
+            _news_first_fetch_done = True
+            log.info("[NEWS] 首次启动，同步获取新闻情绪...")
             _threading.Thread(target=_refresh_news_bg, args=(api_key, model), daemon=True).start()
-            log.info("[NEWS] 缓存过期，后台刷新新闻情绪...")
+
+        # 读缓存
+        sentiment = get_cached_sentiment()
+        age = sentiment.get("age_min", 999)
+
+        # 缓存过期时，后台线程刷新
+        if age > 60 and _news_first_fetch_done:
+            _threading.Thread(target=_refresh_news_bg, args=(api_key, model), daemon=True).start()
+            log.info(f"[NEWS] 缓存过期({age:.0f}min)，后台刷新...")
 
         return {
             "news_sentiment": sentiment.get("score", 0),
@@ -82,6 +96,8 @@ def _get_news_fields(cfg: dict) -> dict:
         }
     except Exception as e:
         log.warning(f"[NEWS] 获取新闻情绪失败: {e}")
+        import traceback
+        log.warning(traceback.format_exc())
         return {}
 
 
