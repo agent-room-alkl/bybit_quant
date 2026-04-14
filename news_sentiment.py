@@ -16,7 +16,7 @@ import requests
 log = logging.getLogger("news_sentiment")
 
 # ── 缓存配置 ──
-CACHE_TTL_SEC = 30 * 60  # 30分钟缓存，避免频繁调 API
+CACHE_TTL_SEC = 60 * 60  # 60分钟缓存，每小时刷新一次
 _cache: Dict[str, Any] = {
     "score": 0,
     "summary": "",

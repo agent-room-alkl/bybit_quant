@@ -70,7 +70,7 @@ def _get_news_fields(cfg: dict) -> dict:
         sentiment = get_cached_sentiment()
 
         # 缓存过期时，后台线程刷新，不阻塞交易循环
-        if sentiment.get("age_min", 999) > 30:
+        if sentiment.get("age_min", 999) > 60:
             _threading.Thread(target=_refresh_news_bg, args=(api_key, model), daemon=True).start()
             log.info("[NEWS] 缓存过期，后台刷新新闻情绪...")
 
