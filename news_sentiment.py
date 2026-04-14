@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-新闻情绪分析模块 — 基于 Claude API
-每30分钟抓取加密新闻，用 Claude 分析地缘政治/宏观经济对 SOL 的影响，
+新闻情绪分析模块 — 基于 GPT-4o API
+每30分钟抓取加密新闻，用 GPT-4o 分析地缘政治/宏观经济对 SOL 的影响，
 返回情绪分数 (-100 ~ +100) 供策略使用。
 """
 import time
@@ -82,7 +82,7 @@ def _fetch_crypto_news() -> list:
     return headlines
 
 
-# ── Claude API 分析 ──────────────────────────────────────────
+# ── GPT-4o API 分析 ──────────────────────────────────────────
 
 ANALYSIS_PROMPT = """你是一个专业的加密货币宏观分析师。根据以下最新新闻标题，分析当前地缘政治和宏观经济环境对加密货币市场（特别是 Solana/SOL）的影响。
 
@@ -111,34 +111,37 @@ ANALYSIS_PROMPT = """你是一个专业的加密货币宏观分析师。根据�
 """
 
 
-def _call_claude_api(api_key: str, headlines: list, model: str = "claude-sonnet-4-20250514") -> Dict:
-    """调用 Claude API 分析新闻情绪"""
+def _call_llm_api(api_key: str, headlines: list, model: str = "gpt-4o") -> Dict:
+    """调用 GPT-4o API 分析新闻情绪"""
     headlines_text = "\n".join(f"- {h}" for h in headlines)
     prompt = ANALYSIS_PROMPT.format(headlines=headlines_text)
 
     try:
         r = requests.post(
-            "https://api.anthropic.com/v1/messages",
+            "https://api.openai.com/v1/chat/completions",
             headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
             },
             json={
                 "model": model,
                 "max_tokens": 512,
-                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "messages": [
+                    {"role": "system", "content": "你是加密货币宏观分析师，只输出JSON格式。"},
+                    {"role": "user", "content": prompt},
+                ],
             },
             timeout=30,
         )
 
         if r.status_code != 200:
-            log.error(f"[NEWS] Claude API error {r.status_code}: {r.text[:200]}")
+            log.error(f"[NEWS] GPT API error {r.status_code}: {r.text[:200]}")
             return {"score": 0, "confidence": 0, "summary": f"API error: {r.status_code}",
                     "key_factors": [], "risk_level": "medium", "suggested_action": "hold"}
 
         resp = r.json()
-        text = resp["content"][0]["text"].strip()
+        text = resp["choices"][0]["message"]["content"].strip()
 
         # 解析 JSON（去掉可能的 markdown 代码块包裹）
         if text.startswith("```"):
@@ -150,25 +153,25 @@ def _call_claude_api(api_key: str, headlines: list, model: str = "claude-sonnet-
         result["score"] = max(-100, min(100, int(result.get("score", 0))))
         result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
 
-        log.info(f"[NEWS] Claude 情绪分析: score={result['score']}, "
+        log.info(f"[NEWS] GPT 情绪分析: score={result['score']}, "
                  f"conf={result['confidence']:.0%}, action={result.get('suggested_action', 'hold')}")
         log.info(f"[NEWS] 摘要: {result.get('summary', 'N/A')}")
 
         return result
 
     except json.JSONDecodeError as e:
-        log.error(f"[NEWS] Claude 返回非 JSON: {e}")
+        log.error(f"[NEWS] GPT 返回非 JSON: {e}")
         return {"score": 0, "confidence": 0, "summary": "Parse error",
                 "key_factors": [], "risk_level": "medium", "suggested_action": "hold"}
     except Exception as e:
-        log.error(f"[NEWS] Claude API 调用失败: {e}")
+        log.error(f"[NEWS] GPT API 调用失败: {e}")
         return {"score": 0, "confidence": 0, "summary": str(e),
                 "key_factors": [], "risk_level": "medium", "suggested_action": "hold"}
 
 
 # ── 公开接口 ──────────────────────────────────────────────────
 
-def get_news_sentiment(api_key: str, model: str = "claude-sonnet-4-20250514") -> Dict[str, Any]:
+def get_news_sentiment(api_key: str, model: str = "gpt-4o") -> Dict[str, Any]:
     """
     获取新闻情绪分数（带30分钟缓存）。
 
@@ -207,10 +210,10 @@ def get_news_sentiment(api_key: str, model: str = "claude-sonnet-4-20250514") ->
                 "key_factors": [], "risk_level": "medium", "suggested_action": "hold",
                 "headlines": [], "cached": False, "age_min": 0}
 
-    log.info(f"[NEWS] 抓取到 {len(headlines)} 条新闻，调用 Claude 分析...")
+    log.info(f"[NEWS] 抓取到 {len(headlines)} 条新闻，调用 GPT-4o 分析...")
 
-    # 2. Claude 分析
-    result = _call_claude_api(api_key, headlines, model)
+    # 2. GPT 分析
+    result = _call_llm_api(api_key, headlines, model)
 
     # 3. 更新缓存
     with _lock:

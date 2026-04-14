@@ -52,8 +52,8 @@ def _nz_today_str() -> str:
 def _get_news_fields(cfg: dict) -> dict:
     """获取新闻情绪字段，带缓存，不影响主流程性能"""
     try:
-        api_key = cfg.get("claude_api_key", "")
-        model = cfg.get("claude_model", "claude-sonnet-4-20250514")
+        api_key = cfg.get("gpt_api_key", "")
+        model = cfg.get("gpt_model", "gpt-4o")
         if not api_key:
             return {}
         sentiment = get_news_sentiment(api_key, model)
