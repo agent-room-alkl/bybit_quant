@@ -20,11 +20,11 @@ FEE_PCT = 0.001   # 0.1% taker fee
 
 STRATEGY_CONFIG = {
     "strategy": {
-        "rsi_oversold": 30,
+        "rsi_oversold": 25,
         "rsi_overbought": 75,
         "min_edge_bps": 40,
         "grid_enabled": True,
-        "grid_spacing_pct": 1.5,
+        "grid_spacing_pct": 0.6,
         "trend_threshold": 30,
         "stop_loss_pct": 4.0,
         "trailing_stop_pct": 2.0,
@@ -32,7 +32,7 @@ STRATEGY_CONFIG = {
         "min_position_pct": 10,
         "base_trade_pct": 6,
         "max_atr_pct": 5.0,
-        "min_confirmation": 4,
+        "min_confirmation": 2,
         "scalp_mode": False,
         "btc_trend_enabled": True,
         "btc_trend_weight": 0.2,
