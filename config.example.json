@@ -48,6 +48,8 @@
     "macro_min_confidence": 0.5
   },
   "gpt_api_key": "YOUR_OPENAI_API_KEY",
-  "gpt_model": "gpt-4o"
+  "gpt_model": "gpt-4o",
+  "claude_api_key": "YOUR_ANTHROPIC_API_KEY",
+  "claude_model": "claude-sonnet-4-20250514"
 }
 

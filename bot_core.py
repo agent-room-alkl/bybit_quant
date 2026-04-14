@@ -18,6 +18,7 @@ from indicators import klines_to_df, enrich_indicators, get_market_condition
 from db import init_db, log_trade, log_signal, set_meta, get_meta
 from cost import get_spot_avg_cost, get_spot_avg_cost_by_position, get_cost_price
 from strategy_v5 import should_trade_gate, SmartStrategy, MarketState, create_smart_strategy
+from news_sentiment import get_news_sentiment, get_cached_score
 
 log = logging.getLogger("auto_bot")
 if not log.handlers:
@@ -46,6 +47,25 @@ def _nz_today_str() -> str:
         # 兜底：如果时区获取失败，则退回本地时间
         now_nz = dt.datetime.now()
     return now_nz.strftime("%Y%m%d")
+
+
+def _get_news_fields(cfg: dict) -> dict:
+    """获取新闻情绪字段，带缓存，不影响主流程性能"""
+    try:
+        api_key = cfg.get("claude_api_key", "")
+        model = cfg.get("claude_model", "claude-sonnet-4-20250514")
+        if not api_key:
+            return {}
+        sentiment = get_news_sentiment(api_key, model)
+        return {
+            "news_sentiment": sentiment.get("score", 0),
+            "news_confidence": sentiment.get("confidence", 0.0),
+            "news_risk_level": sentiment.get("risk_level", "medium"),
+            "news_action": sentiment.get("suggested_action", "hold"),
+        }
+    except Exception as e:
+        log.warning(f"[NEWS] 获取新闻情绪失败: {e}")
+        return {}
 
 
 def _cooldown_ok(symbol: str, side: str, cooldown_min: int) -> Tuple[bool, str]:
@@ -608,6 +628,8 @@ def one_step_for_symbol(client: BybitClient, cfg: Dict[str, Any], symbol: str) -
         adx=adx_val,
         # v5.3: 等量匹配卖出价所需的原始卖出记录
         sell_execs_raw=sell_execs_raw,
+        # v6.0: 新闻情绪
+        **_get_news_fields(cfg),
     )
     
     # === 获取智能策略信号 ===

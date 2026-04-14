@@ -101,6 +101,11 @@ class MarketState:
     adx: float = 25.0                # ADX 趋势强度 (0-100, >25=趋势中)
     # ── v5.3: 卖出记录 ──
     sell_execs_raw: list = None       # 原始卖出执行记录
+    # ── v6.0: 新闻情绪 ──
+    news_sentiment: int = 0           # Claude分析的新闻情绪 (-100~+100)
+    news_confidence: float = 0.0      # 情绪判断的信心 (0~1)
+    news_risk_level: str = "medium"   # 风险级别 (low/medium/high)
+    news_action: str = "hold"         # 建议动作
 
 
 @dataclass
@@ -348,6 +353,65 @@ class SmartStrategy:
 
     # ── 熔断与保护 ──────────────────────────────────────────
 
+    # ── v6.0 新闻情绪调整 ──────────────────────────────────────
+    def _apply_news_sentiment(self, s: MarketState, buy_score: float, sell_score: float,
+                               buy_sigs: list, sell_sigs: list) -> dict:
+        """
+        根据 Claude 分析的新闻情绪调整买卖分数。
+
+        规则：
+        - 强利好 (score >= 50, conf >= 0.7): 买入加权20%, 卖出减权10%
+        - 轻度利好 (score 20~49): 买入加权10%
+        - 强利空 (score <= -50, conf >= 0.7): 卖出加权20%, 买入减权15%
+        - 轻度利空 (score -49~-20): 卖出加权10%
+        - 高风险 (risk=high): 额外压制买入15%
+        - 中性 (-20~20): 不调整
+        """
+        sentiment = s.news_sentiment
+        conf = s.news_confidence
+        risk = s.news_risk_level
+
+        adj_buy = buy_score
+        adj_sell = sell_score
+        news_tag = ""
+
+        # 利好
+        if sentiment >= 50 and conf >= 0.7:
+            adj_buy = buy_score * 1.20
+            adj_sell = sell_score * 0.90
+            news_tag = f"强利好({sentiment},conf={conf:.0%})"
+            buy_sigs = buy_sigs + [(f"新闻{news_tag}", sentiment * 0.3)]
+        elif sentiment >= 20:
+            adj_buy = buy_score * 1.10
+            news_tag = f"轻度利好({sentiment})"
+
+        # 利空
+        elif sentiment <= -50 and conf >= 0.7:
+            adj_sell = sell_score * 1.20
+            adj_buy = buy_score * 0.85
+            news_tag = f"强利空({sentiment},conf={conf:.0%})"
+            sell_sigs = sell_sigs + [(f"新闻{news_tag}", abs(sentiment) * 0.3)]
+        elif sentiment <= -20:
+            adj_sell = sell_score * 1.10
+            adj_buy = buy_score * 0.95
+            news_tag = f"轻度利空({sentiment})"
+
+        # 高风险附加
+        if risk == "high" and adj_buy > adj_sell:
+            adj_buy = adj_buy * 0.85
+            news_tag += "+高风险"
+
+        if news_tag:
+            log.info(f"[NEWS] 情绪调整: {news_tag} | "
+                     f"buy {buy_score:.0f}→{adj_buy:.0f}, sell {sell_score:.0f}→{adj_sell:.0f}")
+
+        return {
+            "buy_score": adj_buy,
+            "sell_score": adj_sell,
+            "buy_sigs": buy_sigs,
+            "sell_sigs": sell_sigs,
+        }
+
     # v5.0 新增：BTC崩盘门控
     def _check_btc_crash_gate(self, s: MarketState) -> Optional[str]:
         """v5.0: BTC日跌超过阈值时禁止网格买入"""
@@ -575,6 +639,14 @@ class SmartStrategy:
         sell_score = sum(sc for _, sc in sell_sigs)
         buy_n = len(buy_sigs)
         sell_n = len(sell_sigs)
+
+        # 2.5 新闻情绪调整（v6.0）
+        if s.news_sentiment != 0 and s.news_confidence >= 0.5:
+            news_adj = self._apply_news_sentiment(s, buy_score, sell_score, buy_sigs, sell_sigs)
+            buy_score = news_adj["buy_score"]
+            sell_score = news_adj["sell_score"]
+            buy_sigs = news_adj["buy_sigs"]
+            sell_sigs = news_adj["sell_sigs"]
 
         # 3. 止损检查
         stop = self._check_stop_loss(s, pos, last_buy_price)
