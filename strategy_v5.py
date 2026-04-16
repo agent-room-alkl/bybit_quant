@@ -134,6 +134,7 @@ class SmartStrategy:
     STOP_LOSS_PRICE_DROP_PCT = 2.0  # v5.1: 3.0%→2.0%，允许更快再入场
     STOP_LOSS_MEMORY_HOURS = 2      # v5.0: 4→2小时，更快过期
     MIN_SAME_SIDE_INTERVAL_MIN = 15.0  # v5.0: 12→15分钟
+    BUY_SELL_COOLDOWN_MIN = 15.0       # v5.4: 买入后15分钟内不触发常规卖出
     MAX_CONSECUTIVE_BUYS = 2        # v5.0: 3→2，减少连续买入
     # v5.0 新增：每日回撤熔断
     DAILY_DRAWDOWN_HALT_PCT = 5.0   # 当日亏损超过5%暂停交易
@@ -324,7 +325,7 @@ class SmartStrategy:
             base["min_confirmation"] = max(3, self._base_min_confirmation + 1)  # v5.1: 多1个确认（was +2）
             base["grid_spacing_pct"] = self._base_grid_spacing_pct * 2.0  # v5.0: 网格间距2倍
             base["base_trade_pct"] = self._base_base_trade_pct * 0.5    # v5.1: 交易量减至50%（was 40%）
-            base["max_position_pct"] = min(25, self._base_max_position_pct)  # v5.0: 仓位上限25% (was 45%)
+            base["max_position_pct"] = min(40, self._base_max_position_pct)  # v5.4: 仓位上限40% (was 25%，减少无谓再平衡)
             base["stop_loss_pct_raw"] = 4.0  # v5.2: 熊市止损放宽到4%（was 2.5%，SOL常见波动3-5%）
             base["downtrend_breaker_pct"] = 2.5  # v5.0: 下跌2.5%熔断 (was 3.5%)
             base["trend_threshold"] = max(20, self._base_trend_threshold)  # v5.0: 保守趋势判断
@@ -723,16 +724,25 @@ class SmartStrategy:
         # 4. 仓位再平衡（在波动率过滤之前，保护性卖出不应被阻止）
         regime_max = self.max_position_pct
         if pos > regime_max + 10:
-            # 成本价保护：卖价必须高于成本价+手续费，防止亏损卖出
-            profit = self._actual_profit_pct(s)
-            if profit <= 0:
-                log.info(f"[REBALANCE] 仓位{pos:.0f}%超上限{regime_max:.0f}%，但当前亏损{profit:.2f}%，不卖")
+            # v5.4: 分批买入进行中豁免再平衡 — 避免一边买一边卖
+            _in_batch_seq = False
+            if s.last_buy_time and s.last_buy_time > 0:
+                _since_buy = self._time_since_min(s.last_buy_time)
+                if _since_buy < self.BATCH_INTERVAL_MIN * 3:  # 36min内有买入，可能在分批序列中
+                    _in_batch_seq = s.usdt_pct > 40  # 还有USDT待部署
+            if _in_batch_seq:
+                log.info(f"[REBALANCE] 仓位{pos:.0f}%超上限{regime_max:.0f}%，但分批买入进行中，豁免再平衡")
             else:
-                excess_pct = pos - regime_max
-                sell_pct = min(excess_pct * 0.5, 20)
-                reason = f"仓位再平衡：当前{pos:.0f}%超过体制上限{regime_max:.0f}%，减仓{sell_pct:.0f}%（盈利{profit:.2f}%）"
-                log.info(f"[REBALANCE] {reason}")
-                return TradeSignal("SELL", max(30, sell_score), reason, sell_pct)
+                # 成本价保护：卖价必须高于成本价+手续费，防止亏损卖出
+                profit = self._actual_profit_pct(s)
+                if profit <= 0:
+                    log.info(f"[REBALANCE] 仓位{pos:.0f}%超上限{regime_max:.0f}%，但当前亏损{profit:.2f}%，不卖")
+                else:
+                    excess_pct = pos - regime_max
+                    sell_pct = min(excess_pct * 0.5, 20)
+                    reason = f"仓位再平衡：当前{pos:.0f}%超过体制上限{regime_max:.0f}%，减仓{sell_pct:.0f}%（盈利{profit:.2f}%）"
+                    log.info(f"[REBALANCE] {reason}")
+                    return TradeSignal("SELL", max(30, sell_score), reason, sell_pct)
 
         # 4.5 波动率过滤（只阻止买入，不阻止卖出）
         if s.atr_pct > self.max_atr_pct:
@@ -1521,6 +1531,14 @@ class SmartStrategy:
             if s.last_price < min_sell:
                 return TradeSignal("HOLD", 0,
                     f"卖价{s.last_price:.2f}<买价{last_buy_price:.2f}+手续费({min_sell:.2f})，防止来回亏损", 0)
+
+        # v5.4: 买入后冷却 — 买入15分钟内不触发常规卖出（止损走独立路径不受影响）
+        if s.last_buy_time and s.last_buy_time > 0:
+            _since_buy = self._time_since_min(s.last_buy_time)
+            if _since_buy < self.BUY_SELL_COOLDOWN_MIN:
+                log.info(f"[COOLDOWN] 买入后{_since_buy:.0f}min < {self.BUY_SELL_COOLDOWN_MIN}min，暂不卖出")
+                return TradeSignal("HOLD", 0,
+                    f"买入后冷却中({_since_buy:.0f}/{self.BUY_SELL_COOLDOWN_MIN:.0f}min)，暂不卖出", 0)
 
         # 修正reason中不准确的描述
         if profit <= 0 and "价格高于成本价" in reason:
