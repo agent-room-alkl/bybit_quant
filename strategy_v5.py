@@ -135,6 +135,9 @@ class SmartStrategy:
     STOP_LOSS_MEMORY_HOURS = 2      # v5.0: 4→2小时，更快过期
     MIN_SAME_SIDE_INTERVAL_MIN = 15.0  # v5.0: 12→15分钟
     BUY_SELL_COOLDOWN_MIN = 15.0       # v5.4: 买入后15分钟内不触发常规卖出
+    SELL_BUY_COOLDOWN_MIN = 10.0       # v5.5 P1: 卖出后10分钟内不触发趋势买入(避免反复高频)
+    RECENT_BUY_EXPIRE_MIN = 120        # v5.5 P2: 近期最高买入价追踪窗口(120min过期)
+    RECENT_BUY_PROFIT_BUFFER_PCT = 0.3 # v5.5 P2: 卖价需高于近期最高买入价*(1+手续费+此缓冲%)
     MAX_CONSECUTIVE_BUYS = 2        # v5.0: 3→2，减少连续买入
     # v5.0 新增：每日回撤熔断
     DAILY_DRAWDOWN_HALT_PCT = 5.0   # 当日亏损超过5%暂停交易
@@ -191,6 +194,10 @@ class SmartStrategy:
         self._last_stop_loss_date = ""         # 上次止损日期（用于重置计数）
         self._last_stop_loss_price = 0.0       # 上次止损时的价格（价格记忆）
         self._last_stop_loss_ts_ms = 0         # 上次止损时间戳（价格记忆过期用）
+        # v5.5 P2: 最近买入最高价追踪 (避免"低位盈利止盈"卖掉高位刚买入的单子)
+        self._recent_max_buy_price = 0.0       # 最近窗口内的最高买入价
+        self._recent_max_buy_ts_ms = 0         # 最近买入时间戳
+        self._last_seen_buy_ts_ms = 0          # 上次看到的 s.last_buy_time,用于检测新买入
 
     # ── 辅助方法 ──────────────────────────────────────────────
 
@@ -625,6 +632,9 @@ class SmartStrategy:
         if s.last_price <= 0 or math.isnan(s.last_price) or math.isnan(s.rsi14):
             return TradeSignal("HOLD", 0, "数据无效", 0)
 
+        # v5.5 P2: 更新最近最高买入价追踪
+        self._update_recent_max_buy(s, last_buy_price)
+
         # 0. 市场状态识别 & 自适应参数
         if self.regime_detection_enabled:
             raw_regime, raw_conf = self._detect_regime(s)
@@ -654,6 +664,11 @@ class SmartStrategy:
             sell_sigs = news_adj["sell_sigs"]
             buy_n = len(buy_sigs)   # 重新计算，新闻信号计入确认数
             sell_n = len(sell_sigs)
+
+        # v5.5 P0: 追踪止损逻辑已撤除 — 诊断显示在 SOL 下跌年里
+        # regime 100% SIDEWAYS,strong BULL 条件极少满足(4.31%时间),
+        # 且 83.9% 场景仓位<10%无法减仓,最大回撤仅 2.24%
+        # 代码保留在 history 里,未来 BULL 行情中再考虑启用
 
         # 3. 止损检查
         stop = self._check_stop_loss(s, pos, last_buy_price)
@@ -847,6 +862,31 @@ class SmartStrategy:
             return dca_sig
 
         return TradeSignal("HOLD", 0, f"{regime_tag}无明确信号", 0)
+
+    # ── v5.5 P2: 最近最高买入价追踪 ─────────────────────────────
+
+    def _update_recent_max_buy(self, s: MarketState, last_buy_price: float) -> None:
+        """
+        维护最近 RECENT_BUY_EXPIRE_MIN 分钟内的最高买入价。
+        用于保护高位新买入不被低位盈利止盈卖掉。
+        """
+        # 过期重置
+        if self._recent_max_buy_ts_ms > 0 and \
+           self._time_since_min(self._recent_max_buy_ts_ms) > self.RECENT_BUY_EXPIRE_MIN:
+            if self._recent_max_buy_price > 0:
+                log.debug(f"[P2] 近期最高买价过期,清除 (原${self._recent_max_buy_price:.2f})")
+            self._recent_max_buy_price = 0.0
+            self._recent_max_buy_ts_ms = 0
+
+        # 检测到新的买入(s.last_buy_time 变新)
+        if s.last_buy_time > 0 and s.last_buy_time > self._last_seen_buy_ts_ms:
+            # 有新买入
+            buy_price = last_buy_price if last_buy_price > 0 else s.last_price
+            if buy_price > self._recent_max_buy_price:
+                log.debug(f"[P2] 更新近期最高买价: ${self._recent_max_buy_price:.2f} → ${buy_price:.2f}")
+                self._recent_max_buy_price = buy_price
+            self._recent_max_buy_ts_ms = s.last_buy_time
+            self._last_seen_buy_ts_ms = s.last_buy_time
 
     # ── 信号生成 ──────────────────────────────────────────────
 
@@ -1216,6 +1256,11 @@ class SmartStrategy:
         # 冷却2小时
         if s.last_buy_time > 0 and self._time_since_min(s.last_buy_time) < 120:
             return None
+        # v5.5 P1: SELL→BUY 10分钟冷却,避免反复高频
+        if s.last_sell_time > 0 and self._time_since_min(s.last_sell_time) < self.SELL_BUY_COOLDOWN_MIN:
+            since_sell = self._time_since_min(s.last_sell_time)
+            log.debug(f"[P1-COOLDOWN] 趋势跟踪买入被SELL冷却阻止: 距上次卖出{since_sell:.1f}min<{self.SELL_BUY_COOLDOWN_MIN}min")
+            return None
         if trend_score_count >= 4 and not_bear:  # 7条件满足4个+非熊市
             effective_max = getattr(self, '_dynamic_max_pos', self.max_position_pct)
             if pos < effective_max:
@@ -1525,12 +1570,20 @@ class SmartStrategy:
         # ── 来回交易防护 ──
         # 如果最近买入价已知且卖出价低于买入价+手续费，拒绝卖出（止损除外）
         # 防止"买$87.60→卖$87.50"的来回亏损循环
-        if last_buy_price > 0 and profit < 5.0:
+        # v5.5 P2: 用 max(last_buy_price, 近期最高买价) 强化保护
+        # v5.5.3: 新闻强利空豁免 — 避免 P2 挡掉新闻预警的卖出
+        news_bearish_override = (s.news_sentiment <= -50 and s.news_confidence >= 0.7)
+        protect_price = max(last_buy_price, self._recent_max_buy_price)
+        if protect_price > 0 and profit < 5.0 and not news_bearish_override:
             fee_round_trip = self.fee_bps * 2 / 10000  # 0.002 = 0.2%
-            min_sell = last_buy_price * (1 + fee_round_trip)
+            buffer = self.RECENT_BUY_PROFIT_BUFFER_PCT / 100  # +0.3% 实质利润缓冲
+            min_sell = protect_price * (1 + fee_round_trip + buffer)
             if s.last_price < min_sell:
+                src = "近期最高买价" if self._recent_max_buy_price > last_buy_price else "最近买价"
                 return TradeSignal("HOLD", 0,
-                    f"卖价{s.last_price:.2f}<买价{last_buy_price:.2f}+手续费({min_sell:.2f})，防止来回亏损", 0)
+                    f"卖价{s.last_price:.2f}<{src}{protect_price:.2f}+手续费+缓冲({min_sell:.2f})，防止来回亏损", 0)
+        elif news_bearish_override and protect_price > 0:
+            log.info(f"[P2] 新闻强利空(score={s.news_sentiment},conf={s.news_confidence:.0%})豁免近期买价保护")
 
         # v5.4: 买入后冷却 — 买入15分钟内不触发常规卖出（止损走独立路径不受影响）
         if s.last_buy_time and s.last_buy_time > 0:
