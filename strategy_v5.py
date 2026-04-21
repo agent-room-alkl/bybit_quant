@@ -138,6 +138,7 @@ class SmartStrategy:
     SELL_BUY_COOLDOWN_MIN = 10.0       # v5.5 P1: 卖出后10分钟内不触发趋势买入(避免反复高频)
     RECENT_BUY_EXPIRE_MIN = 120        # v5.5 P2: 近期最高买入价追踪窗口(120min过期)
     RECENT_BUY_PROFIT_BUFFER_PCT = 0.3 # v5.5 P2: 卖价需高于近期最高买入价*(1+手续费+此缓冲%)
+    SELL_SELL_COOLDOWN_MIN = 15.0      # v5.5.4 Fix2: 常规止盈后15min冷却,避免BULL期频繁小额止盈(止损除外)
     MAX_CONSECUTIVE_BUYS = 2        # v5.0: 3→2，减少连续买入
     # v5.0 新增：每日回撤熔断
     DAILY_DRAWDOWN_HALT_PCT = 5.0   # 当日亏损超过5%暂停交易
@@ -1290,6 +1291,27 @@ class SmartStrategy:
         reasons = [n for n, _ in sorted(sigs, key=lambda x: -x[1])[:3]]
         reason = "买入信号: " + ", ".join(reasons)
 
+        # v5.5.4 Fix1: P1 冷却期扩展到主买入路径 (SELL→BUY 10分钟冷却)
+        # 原来只有 _check_trend_follow 有 P1, 导致 _process_buy 主路径绕过冷却 —
+        # 04-18 02:39→02:44, 02:50→02:54 的 4.8min 反复就是这个漏洞
+        # 例外: 极低仓位(<8%)时允许买入,避免因单次止盈导致仓位归零无法参与行情
+        if pos >= 8 and s.last_sell_time and s.last_sell_time > 0:
+            _since_sell = self._time_since_min(s.last_sell_time)
+            if _since_sell < self.SELL_BUY_COOLDOWN_MIN:
+                log.info(f"[P1] 主买入路径被SELL冷却阻止: 距上次卖出{_since_sell:.1f}min<{self.SELL_BUY_COOLDOWN_MIN}min (仓位{pos:.0f}%)")
+                return TradeSignal("HOLD", 0,
+                    f"卖出后冷却中({_since_sell:.0f}/{self.SELL_BUY_COOLDOWN_MIN:.0f}min)，避免高频反复", 0)
+
+        # v5.5.4 Fix3: 新闻强利空时禁止主动买入 (DCA/低位补仓路径不受限,下方 bottom_signals 仍可激活)
+        # 04-19 12:06 新闻-40 时策略还买$86.29, 结果持续下跌到$83.5,就是这个问题
+        if s.news_sentiment <= -30 and s.news_confidence >= 0.5:
+            # 但极度超卖(RSI<25) + 多个底部信号时仍可逆势买 (机会大于风险)
+            bottom_n, _ = self._bottom_signals(s)
+            if bottom_n < 3 and s.rsi14 > 25:
+                log.info(f"[P3] 新闻利空(score={s.news_sentiment},conf={s.news_confidence:.0%})禁止主动买入 (RSI{s.rsi14:.0f},bottom_n={bottom_n})")
+                return TradeSignal("HOLD", 0,
+                    f"新闻利空({s.news_sentiment}/conf{s.news_confidence:.0%})禁止主动买入", 0)
+
         ref = self._ref_cost(s)
         pdiff = self._pct_diff(s.last_price, ref) if ref > 0 else 0
         pullback = self._pullback(s)
@@ -1592,6 +1614,22 @@ class SmartStrategy:
                 log.info(f"[COOLDOWN] 买入后{_since_buy:.0f}min < {self.BUY_SELL_COOLDOWN_MIN}min，暂不卖出")
                 return TradeSignal("HOLD", 0,
                     f"买入后冷却中({_since_buy:.0f}/{self.BUY_SELL_COOLDOWN_MIN:.0f}min)，暂不卖出", 0)
+
+        # v5.5.4 Fix2: 连续止盈冷却 — 上次止盈后 20min 内不再触发小额常规止盈
+        # 解决 04-18 02:44-03:50 BULL期高频止盈再买回的问题 (每次0.2%手续费白送)
+        # 例外: (1)浮盈≥5% — 大利润正常止盈让利润落袋 (2)强趋势转负 — 趋势结束该退
+        # (3)新闻强利空 — 新闻预警不受限 (4)止损 — 走独立路径不经过这里
+        if s.last_sell_time and s.last_sell_time > 0:
+            _since_sell = self._time_since_min(s.last_sell_time)
+            if _since_sell < self.SELL_SELL_COOLDOWN_MIN:
+                # 豁免条件
+                big_profit = profit >= 5.0   # 浮盈够大,正常止盈
+                trend_flipped = s.h1_trend_score < -30 and s.trend_score < -15  # 趋势明显转弱
+                news_strong_bear = (s.news_sentiment <= -50 and s.news_confidence >= 0.7)
+                if not (big_profit or trend_flipped or news_strong_bear):
+                    log.info(f"[P3] 止盈冷却中: 距上次卖出{_since_sell:.1f}min<{self.SELL_SELL_COOLDOWN_MIN}min (浮盈{profit:.1f}%)")
+                    return TradeSignal("HOLD", 0,
+                        f"止盈冷却({_since_sell:.0f}/{self.SELL_SELL_COOLDOWN_MIN:.0f}min)+浮盈{profit:.1f}%<5%,等待更好时机", 0)
 
         # 修正reason中不准确的描述
         if profit <= 0 and "价格高于成本价" in reason:
