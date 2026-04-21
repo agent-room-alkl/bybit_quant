@@ -346,6 +346,8 @@ class SmartStrategy:
             base["buy_above_cost_allowed"] = True
             base["downtrend_breaker_pct"] = 8.0  # 放宽熔断
             base["sell_dampen"] = 0.5  # 压制卖出
+            # v5.5.9 优化6: BULL 体制 7天复盘 100% 胜率 +1.21% 均盈, 加大交易量
+            base["base_trade_pct"] = self._base_base_trade_pct * 2.0
         return base
 
     def _apply_adaptive_params(self, rp: Dict[str, Any]):
