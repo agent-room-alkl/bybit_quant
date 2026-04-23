@@ -310,7 +310,8 @@ class SmartStrategy:
 
         return (self._last_regime, new_confidence * 0.7)
 
-    def _get_regime_params(self, regime: str, confidence: float) -> Dict[str, Any]:
+    def _get_regime_params(self, regime: str, confidence: float,
+                            s: Optional[MarketState] = None) -> Dict[str, Any]:
         """根据市场状态和置信度返回自适应参数 — v3.1: 熊市大幅收紧"""
         base = {
             "rsi_buy": self._base_rsi_oversold,
@@ -346,8 +347,12 @@ class SmartStrategy:
             base["buy_above_cost_allowed"] = True
             base["downtrend_breaker_pct"] = 8.0  # 放宽熔断
             base["sell_dampen"] = 0.5  # 压制卖出
-            # v5.5.9 优化6: BULL 体制 7天复盘 100% 胜率 +1.21% 均盈, 加大交易量
-            base["base_trade_pct"] = self._base_base_trade_pct * 2.0
+            # v5.5.9 优化6: BULL 体制加大交易量 (7天复盘 100% 胜率 +1.21% 均盈)
+            # v5.5.10 修正: 高位过滤 — 15天累计涨幅 ≥ 3% 时不放大,避免追涨杀跌
+            # 实盘证据: 04-23 02:45-05:21 SOL 已涨3.5%还追3单,被套-1.5% 合计-$3.8
+            if s is None or s.long_term_trend_pct < 3.0:
+                base["base_trade_pct"] = self._base_base_trade_pct * 2.0
+            # else: 过热期(15d涨>=3%)保持基础交易量, 不追涨
         return base
 
     def _apply_adaptive_params(self, rp: Dict[str, Any]):
@@ -644,7 +649,7 @@ class SmartStrategy:
             regime, conf = self._apply_regime_hysteresis(raw_regime, raw_conf)
             s.regime = regime
             s.regime_confidence = conf
-            rp = self._get_regime_params(regime, conf)
+            rp = self._get_regime_params(regime, conf, s)
             self._apply_adaptive_params(rp)
 
         # 1. 信号生成
