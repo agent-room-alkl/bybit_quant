@@ -1349,10 +1349,91 @@ async def login_page():
         .error-message.show {
             display: block;
         }
+        body {
+            background: #f5f7fb;
+            color: #1f2937;
+        }
+        .bg-animation {
+            background:
+                linear-gradient(135deg, rgba(14, 165, 233, 0.10), transparent 32%),
+                linear-gradient(225deg, rgba(16, 185, 129, 0.12), transparent 38%),
+                #f5f7fb;
+        }
+        .login-container {
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid #d7dee8;
+            border-radius: 8px;
+            box-shadow: 0 24px 70px rgba(15, 23, 42, 0.14);
+        }
+        .login-header h1 {
+            background: linear-gradient(135deg, #0f766e 0%, #2563eb 55%, #7c3aed 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .login-header p,
+        .form-group label {
+            color: #64748b;
+        }
+        .form-group input {
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            color: #111827;
+            border-radius: 8px;
+        }
+        .form-group input:focus {
+            border-color: #0ea5e9;
+            box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+        }
+        .login-btn {
+            background: linear-gradient(135deg, #0f766e, #2563eb);
+            border-radius: 8px;
+            box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18);
+        }
+        .login-btn:hover {
+            box-shadow: 0 14px 30px rgba(37, 99, 235, 0.24);
+        }
+        .theme-toggle {
+            position: fixed;
+            top: 18px;
+            right: 18px;
+            background: rgba(255, 255, 255, 0.86);
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            color: #334155;
+            cursor: pointer;
+            font-size: 0.9rem;
+            padding: 8px 12px;
+        }
+        body[data-theme="dark"] {
+            background: #0a0a1a;
+            color: #fff;
+        }
+        body[data-theme="dark"] .bg-animation {
+            background:
+                radial-gradient(ellipse at 20% 80%, rgba(0, 212, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(123, 44, 191, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(0, 255, 136, 0.05) 0%, transparent 70%);
+        }
+        body[data-theme="dark"] .login-container {
+            background: linear-gradient(145deg, rgba(30, 42, 74, 0.9), rgba(22, 32, 53, 0.95));
+            border-color: rgba(255,255,255,0.1);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        body[data-theme="dark"] .form-group input {
+            background: rgba(0, 0, 0, 0.3);
+            border-color: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        body[data-theme="dark"] .theme-toggle {
+            background: rgba(15, 23, 42, 0.82);
+            border-color: rgba(148, 163, 184, 0.35);
+            color: #e2e8f0;
+        }
     </style>
 </head>
 <body>
     <div class="bg-animation"></div>
+    <button type="button" class="theme-toggle" id="theme-toggle" onclick="toggleTheme()">深色</button>
     <div class="login-container">
         <div class="login-header">
             <h1>⚡ QUANTUM TRADER</h1>
@@ -1372,6 +1453,19 @@ async def login_page():
         </form>
     </div>
     <script>
+        const THEME_KEY = 'quant_theme';
+        function applyTheme(theme) {
+            const nextTheme = theme === 'dark' ? 'dark' : 'light';
+            document.body.dataset.theme = nextTheme;
+            localStorage.setItem(THEME_KEY, nextTheme);
+            const btn = document.getElementById('theme-toggle');
+            if (btn) btn.textContent = nextTheme === 'dark' ? '浅色' : '深色';
+        }
+        function toggleTheme() {
+            applyTheme(document.body.dataset.theme === 'dark' ? 'light' : 'dark');
+        }
+        applyTheme(localStorage.getItem(THEME_KEY) || 'light');
+
         document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const username = document.getElementById('username').value;
@@ -1434,10 +1528,88 @@ async def login_page():
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     # 不在这里检查token，让前端JavaScript检查，避免循环重定向
-    # token存储在localStorage中，服务端无法直接读取
+    # token存储在localStorage中，存储于 localStorage，无法直接读取
     symbols = cfg.get("symbols", [])
     symbol = symbols[0] if symbols else "SOLUSDT"
-    
+
+    # v5.5.13 i18n: 中英文切换字典 (在 f-string 外构建,避免 {{}} 转义复杂)
+    import json as _json_mod
+    i18n_dict = {
+        "zh": {
+            "title": "智能量化交易系统",
+            "subtitle": "INTELLIGENT ALGORITHMIC TRADING SYSTEM v2.0",
+            "logout": "退出",
+            "view_strategy": "📋 查看交易策略说明",
+            "card_total_asset": "💎 总资产",
+            "card_pnl": "📊 持仓盈亏",
+            "card_holdings": "🪙 持仓量",
+            "card_usdt": "💵 可用USDT",
+            "tech_indicators": "📈 技术指标 INDICATORS",
+            "news_sentiment": "📰 新闻情绪 NEWS SENTIMENT",
+            "price_chart": "📈 价格走势 (72H)",
+            "rsi_chart": "📊 RSI指标",
+            "macd_chart": "📉 MACD",
+            "recent_trades": "📜 最近交易 TRADES",
+            "signals_log": "📡 信号记录 SIGNALS",
+            "engine_active": "TRADING ENGINE ACTIVE",
+            "btn_buy": "🚀 BUY",
+            "btn_sell": "📉 SELL",
+            "manual_trade": "手动交易",
+            "trade_settings": "交易设置",
+            "leverage_setting": "杠杆倍数",
+            "save": "保存",
+            "reset_daily": "重置当日计数",
+            "rsi_label": "RSI (14)",
+            "trend_strength": "趋势强度",
+            "bb_position": "布林位置",
+            "macd_hist": "MACD柱",
+            "atr_volatility": "ATR波动",
+            "volume_ratio": "成交量比",
+            "support": "支撑位",
+            "resistance": "阻力位",
+            "lang_btn": "🌐 EN",
+            "theme_btn_dark": "深色",
+            "theme_btn_light": "浅色",
+        },
+        "en": {
+            "title": "Smart Quant Trading",
+            "subtitle": "INTELLIGENT ALGORITHMIC TRADING SYSTEM v2.0",
+            "logout": "Logout",
+            "view_strategy": "📋 Strategy Notes",
+            "card_total_asset": "💎 Total Asset",
+            "card_pnl": "📊 P&L",
+            "card_holdings": "🪙 Holdings",
+            "card_usdt": "💵 USDT",
+            "tech_indicators": "📈 INDICATORS",
+            "news_sentiment": "📰 NEWS SENTIMENT",
+            "price_chart": "📈 Price (72H)",
+            "rsi_chart": "📊 RSI",
+            "macd_chart": "📉 MACD",
+            "recent_trades": "📜 Recent Trades",
+            "signals_log": "📡 Signals",
+            "engine_active": "TRADING ENGINE ACTIVE",
+            "btn_buy": "🚀 BUY",
+            "btn_sell": "📉 SELL",
+            "manual_trade": "Manual Trade",
+            "trade_settings": "Trade Settings",
+            "leverage_setting": "Leverage",
+            "save": "Save",
+            "reset_daily": "Reset Daily Counter",
+            "rsi_label": "RSI (14)",
+            "trend_strength": "Trend Strength",
+            "bb_position": "BB Position",
+            "macd_hist": "MACD Hist",
+            "atr_volatility": "ATR Volatility",
+            "volume_ratio": "Volume Ratio",
+            "support": "Support",
+            "resistance": "Resistance",
+            "lang_btn": "🌐 中",
+            "theme_btn_dark": "Dark",
+            "theme_btn_light": "Light",
+        },
+    }
+    i18n_json = _json_mod.dumps(i18n_dict, ensure_ascii=False)
+
     html = f"""
 <!DOCTYPE html>
 <html lang="zh">
@@ -1712,6 +1884,222 @@ async def dashboard(request: Request):
             from {{ transform: translateX(100%); opacity: 0; }}
             to {{ transform: translateX(0); opacity: 1; }}
         }}
+
+        /* v5.5.13 theme refresh: default light dashboard with optional dark mode */
+        :root {{
+            --bg: #f5f7fb;
+            --bg-soft: #eef4fb;
+            --surface: rgba(255, 255, 255, 0.94);
+            --surface-subtle: #f8fafc;
+            --border: #d7dee8;
+            --text: #162033;
+            --muted: #64748b;
+            --muted-strong: #475569;
+            --accent: #0f766e;
+            --accent-2: #2563eb;
+            --accent-3: #7c3aed;
+            --success: #059669;
+            --danger: #dc2626;
+            --warning: #d97706;
+            --shadow: 0 16px 40px rgba(15, 23, 42, 0.10);
+            --grid-line: rgba(100, 116, 139, 0.16);
+            --modal-backdrop: rgba(15, 23, 42, 0.54);
+        }}
+        body[data-theme="dark"] {{
+            --bg: #0a0a1a;
+            --bg-soft: #111827;
+            --surface: linear-gradient(145deg, rgba(30, 42, 74, 0.88), rgba(22, 32, 53, 0.94));
+            --surface-subtle: rgba(255,255,255,0.04);
+            --border: rgba(255,255,255,0.10);
+            --text: #f8fafc;
+            --muted: #8a97aa;
+            --muted-strong: #b8c5d6;
+            --accent: #00d4ff;
+            --accent-2: #7b2cbf;
+            --accent-3: #00ff88;
+            --success: #00ff88;
+            --danger: #ff4757;
+            --warning: #ffa502;
+            --shadow: 0 18px 56px rgba(0,0,0,0.44);
+            --grid-line: rgba(255,255,255,0.06);
+            --modal-backdrop: rgba(0,0,0,0.78);
+        }}
+        body {{
+            background: var(--bg) !important;
+            color: var(--text) !important;
+        }}
+        .bg-animation {{
+            background:
+                linear-gradient(135deg, rgba(37, 99, 235, 0.10), transparent 30%),
+                linear-gradient(225deg, rgba(15, 118, 110, 0.12), transparent 36%),
+                linear-gradient(0deg, rgba(124, 58, 237, 0.05), transparent 48%),
+                var(--bg) !important;
+        }}
+        body[data-theme="dark"] .bg-animation {{
+            background:
+                radial-gradient(ellipse at 20% 80%, rgba(0, 212, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(123, 44, 191, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(0, 255, 136, 0.05) 0%, transparent 70%) !important;
+        }}
+        .card,
+        .indicator,
+        .trade-item {{
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: 8px !important;
+            box-shadow: var(--shadow) !important;
+            color: var(--text) !important;
+        }}
+        .card:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 20px 48px rgba(15, 23, 42, 0.14) !important;
+        }}
+        body[data-theme="dark"] .card:hover {{
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08) !important;
+        }}
+        h1 {{
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 58%, var(--accent-3) 100%) !important;
+            -webkit-background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
+            text-shadow: none !important;
+            letter-spacing: 0 !important;
+        }}
+        .subtitle,
+        .card-title,
+        .card-sub,
+        .chart-title,
+        .indicator-label,
+        .stat-label,
+        .indicator-status {{
+            color: var(--muted) !important;
+            letter-spacing: 0 !important;
+        }}
+        .chart-title::after {{
+            background: linear-gradient(90deg, var(--border), transparent) !important;
+        }}
+        .green {{ color: var(--success) !important; text-shadow: none !important; }}
+        .red {{ color: var(--danger) !important; text-shadow: none !important; }}
+        .yellow {{ color: var(--warning) !important; text-shadow: none !important; }}
+        .blue {{ color: var(--accent-2) !important; text-shadow: none !important; }}
+        .purple {{ color: var(--accent-3) !important; text-shadow: none !important; }}
+        body[data-theme="dark"] .blue {{ color: #00d4ff !important; }}
+        body[data-theme="dark"] .purple {{ color: #b794f4 !important; }}
+        .signal-strength {{
+            background: var(--bg-soft) !important;
+        }}
+        .indicator {{
+            background: var(--surface-subtle) !important;
+            box-shadow: none !important;
+        }}
+        .indicator:hover,
+        .trade-item:hover {{
+            background: #eef6ff !important;
+        }}
+        body[data-theme="dark"] .indicator:hover,
+        body[data-theme="dark"] .trade-item:hover {{
+            background: rgba(255,255,255,0.07) !important;
+        }}
+        .status-bar {{
+            background: rgba(255, 255, 255, 0.92) !important;
+            border-top: 1px solid var(--border);
+            box-shadow: 0 -8px 30px rgba(15, 23, 42, 0.06);
+            color: var(--text);
+        }}
+        body[data-theme="dark"] .status-bar {{
+            background: linear-gradient(180deg, transparent, rgba(10, 10, 26, 0.95)) !important;
+            box-shadow: none;
+        }}
+        .theme-toggle,
+        #lang-toggle {{
+            background: rgba(255, 255, 255, 0.88) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: 8px !important;
+            color: var(--muted-strong) !important;
+            cursor: pointer;
+            font-size: 0.85rem;
+            padding: 6px 12px;
+            transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
+        }}
+        .theme-toggle:hover,
+        #lang-toggle:hover {{
+            background: #eef6ff !important;
+            border-color: rgba(37, 99, 235, 0.35) !important;
+            color: var(--accent-2) !important;
+        }}
+        body[data-theme="dark"] .theme-toggle,
+        body[data-theme="dark"] #lang-toggle {{
+            background: rgba(0,212,255,0.12) !important;
+            border-color: rgba(0,212,255,0.35) !important;
+            color: #00d4ff !important;
+        }}
+        #username-display {{
+            color: var(--accent-2) !important;
+            font-weight: 700;
+        }}
+        input,
+        select {{
+            background: #ffffff !important;
+            border: 1px solid var(--border) !important;
+            border-radius: 8px !important;
+            color: var(--text) !important;
+        }}
+        body[data-theme="dark"] input,
+        body[data-theme="dark"] select {{
+            background: rgba(0, 0, 0, 0.28) !important;
+            border-color: rgba(255,255,255,0.12) !important;
+            color: #ffffff !important;
+        }}
+        .trade-btn {{
+            border-radius: 8px !important;
+            letter-spacing: 0 !important;
+        }}
+        #strategyModal {{
+            background: var(--modal-backdrop) !important;
+        }}
+        #strategyModal > div {{
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: 8px !important;
+            color: var(--text) !important;
+            box-shadow: var(--shadow) !important;
+        }}
+        #strategyModal [style*="background: rgba(0, 0, 0, 0.3)"] {{
+            background: var(--surface-subtle) !important;
+            border-color: var(--border) !important;
+        }}
+        #news-card {{
+            border-top-color: var(--border) !important;
+        }}
+        #news-summary,
+        #trades-list [style*="color:#5a6a8a"],
+        #signals-list [style*="color:#5a6a8a"],
+        #news-label,
+        #news-age {{
+            color: var(--muted) !important;
+        }}
+        @media (max-width: 900px) {{
+            .grid-5,
+            .grid-3,
+            .grid-2,
+            .indicators {{
+                grid-template-columns: 1fr !important;
+            }}
+            .header > div:first-child {{
+                position: static !important;
+                justify-content: center;
+                margin-bottom: 16px;
+                flex-wrap: wrap;
+            }}
+            h1 {{
+                font-size: 2rem;
+            }}
+            .status-bar {{
+                position: static;
+                margin-top: 20px;
+                gap: 10px;
+                flex-direction: column;
+            }}
+        }}
     </style>
 </head>
 <body>
@@ -1720,13 +2108,15 @@ async def dashboard(request: Request):
     <div class="container">
         <!-- 头部 -->
         <div class="header" style="position: relative;">
-            <div style="position: absolute; top: 0; right: 0; display: flex; align-items: center; gap: 15px;">
+            <div style="position: absolute; top: 0; right: 0; display: flex; align-items: center; gap: 10px;">
+                <button id="theme-toggle" class="theme-toggle" onclick="toggleTheme()">深色</button>
+                <button id="lang-toggle" onclick="toggleLang()" style="background: rgba(0,212,255,0.15); border: 1px solid rgba(0,212,255,0.4); border-radius: 6px; padding: 6px 12px; color: #00d4ff; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(0,212,255,0.3)';" onmouseout="this.style.background='rgba(0,212,255,0.15)';">🌐 EN</button>
                 <span style="color: #00d4ff; font-size: 0.9rem;" id="username-display">admin</span>
-                <button onclick="logout()" style="background: linear-gradient(135deg, #e74c3c, #c0392b); border: none; border-radius: 6px; padding: 6px 12px; color: white; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;" onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 0 15px rgba(231,76,60,0.5)';" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';">退出</button>
+                <button onclick="logout()" data-i18n="logout" style="background: linear-gradient(135deg, #e74c3c, #c0392b); border: none; border-radius: 6px; padding: 6px 12px; color: white; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;" onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 0 15px rgba(231,76,60,0.5)';" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';">退出</button>
             </div>
             <h1>⚡ QUANTUM TRADER</h1>
-            <div class="subtitle">INTELLIGENT ALGORITHMIC TRADING SYSTEM v2.0</div>
-            <button onclick="showStrategyModal()" style="margin-top: 15px; background: linear-gradient(135deg, #00d4ff, #7b2cbf); border: none; border-radius: 8px; padding: 10px 20px; color: white; cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: all 0.3s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 10px 30px rgba(0,212,255,0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">📋 查看交易策略说明</button>
+            <div class="subtitle" data-i18n="subtitle">INTELLIGENT ALGORITHMIC TRADING SYSTEM v2.0</div>
+            <button onclick="showStrategyModal()" data-i18n="view_strategy" style="margin-top: 15px; background: linear-gradient(135deg, #00d4ff, #7b2cbf); border: none; border-radius: 8px; padding: 10px 20px; color: white; cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: all 0.3s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 10px 30px rgba(0,212,255,0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">📋 查看交易策略说明</button>
         </div>
         
         <!-- 策略说明弹出框 -->
@@ -1806,12 +2196,12 @@ async def dashboard(request: Request):
         <!-- 资产卡片 -->
         <div class="grid-5">
             <div class="card">
-                <div class="card-title">💎 总资产</div>
+                <div class="card-title" data-i18n="card_total_asset">💎 总资产</div>
                 <div class="card-value blue" id="total-value">$--</div>
                 <div class="card-sub">Portfolio Value</div>
             </div>
             <div class="card">
-                <div class="card-title">📊 持仓盈亏</div>
+                <div class="card-title" data-i18n="card_pnl">📊 持仓盈亏</div>
                 <div class="card-value" id="pnl-pct">--%</div>
                 <div class="card-sub" id="pnl-usdt">$--</div>
             </div>
@@ -1821,12 +2211,12 @@ async def dashboard(request: Request):
                 <div class="card-sub" id="price-change">24h: --%</div>
             </div>
             <div class="card">
-                <div class="card-title">🪙 持仓量</div>
+                <div class="card-title" data-i18n="card_holdings">🪙 持仓量</div>
                 <div class="card-value yellow" id="base-balance">--</div>
                 <div class="card-sub" id="base-value">≈ $--</div>
             </div>
             <div class="card">
-                <div class="card-title">💵 可用USDT</div>
+                <div class="card-title" data-i18n="card_usdt">💵 可用USDT</div>
                 <div class="card-value green" id="usdt-balance">$--</div>
                 <div class="card-sub">Available</div>
             </div>
@@ -1996,52 +2386,52 @@ async def dashboard(request: Request):
                 <div style="color: #5a6a8a; font-size: 0.7rem; margin-top: 8px;">GTC挂单 · 最小量×2 · 等待成交</div>
             </div>
             <div class="card">
-                <div class="card-title">📈 技术指标 INDICATORS</div>
+                <div class="card-title" data-i18n="tech_indicators">📈 技术指标 INDICATORS</div>
                 <div class="indicators">
                     <div class="indicator">
-                        <div class="indicator-label">RSI (14)</div>
+                        <div class="indicator-label" data-i18n="rsi_label">RSI (14)</div>
                         <div class="indicator-value" id="rsi">--</div>
                         <div class="indicator-status" id="rsi-status">--</div>
                     </div>
                     <div class="indicator">
-                        <div class="indicator-label">趋势强度</div>
+                        <div class="indicator-label" data-i18n="trend_strength">趋势强度</div>
                         <div class="indicator-value" id="trend">--</div>
                         <div class="indicator-status" id="trend-status">--</div>
                     </div>
                     <div class="indicator">
-                        <div class="indicator-label">布林位置</div>
+                        <div class="indicator-label" data-i18n="bb_position">布林位置</div>
                         <div class="indicator-value" id="bb">--%</div>
                         <div class="indicator-status" id="bb-status">--</div>
                     </div>
                     <div class="indicator">
-                        <div class="indicator-label">MACD柱</div>
+                        <div class="indicator-label" data-i18n="macd_hist">MACD柱</div>
                         <div class="indicator-value" id="macd">--</div>
                         <div class="indicator-status" id="macd-status">--</div>
                     </div>
                     <div class="indicator">
-                        <div class="indicator-label">ATR波动</div>
+                        <div class="indicator-label" data-i18n="atr_volatility">ATR波动</div>
                         <div class="indicator-value" id="atr">--%</div>
                         <div class="indicator-status" id="atr-status">--</div>
                     </div>
                     <div class="indicator">
-                        <div class="indicator-label">成交量比</div>
+                        <div class="indicator-label" data-i18n="volume_ratio">成交量比</div>
                         <div class="indicator-value" id="vol">--x</div>
                         <div class="indicator-status" id="vol-status">--</div>
                     </div>
                     <div class="indicator">
-                        <div class="indicator-label">支撑位</div>
+                        <div class="indicator-label" data-i18n="support">支撑位</div>
                         <div class="indicator-value green" id="support">$--</div>
                         <div class="indicator-status">SUPPORT</div>
                     </div>
                     <div class="indicator">
-                        <div class="indicator-label">阻力位</div>
+                        <div class="indicator-label" data-i18n="resistance">阻力位</div>
                         <div class="indicator-value red" id="resistance">$--</div>
                         <div class="indicator-status">RESISTANCE</div>
                     </div>
                 </div>
                 <!-- 新闻情绪 NEWS SENTIMENT (嵌入在技术指标卡片内) -->
                 <div id="news-card" style="margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);">
-                    <div class="chart-title" style="margin-bottom:8px;">📰 新闻情绪 NEWS SENTIMENT</div>
+                    <div class="chart-title" data-i18n="news_sentiment" style="margin-bottom:8px;">📰 新闻情绪 NEWS SENTIMENT</div>
                     <div style="display:flex;align-items:center;gap:20px;margin:4px 0 0 0;">
                         <div style="text-align:center;min-width:80px;">
                             <div id="news-score" style="font-size:2em;font-weight:bold;color:#888;">--</div>
@@ -2060,19 +2450,19 @@ async def dashboard(request: Request):
         <!-- 图表区域 -->
         <div class="grid-3">
             <div class="card">
-                <div class="chart-title">📈 价格走势 (72H)</div>
+                <div class="chart-title" data-i18n="price_chart">📈 价格走势 (72H)</div>
                 <div class="chart-container">
                     <canvas id="priceChart"></canvas>
                 </div>
             </div>
             <div class="card">
-                <div class="chart-title">📊 RSI指标</div>
+                <div class="chart-title" data-i18n="rsi_chart">📊 RSI指标</div>
                 <div class="chart-container">
                     <canvas id="rsiChart"></canvas>
                 </div>
             </div>
             <div class="card">
-                <div class="chart-title">📉 MACD</div>
+                <div class="chart-title" data-i18n="macd_chart">📉 MACD</div>
                 <div class="chart-container">
                     <canvas id="macdChart"></canvas>
                 </div>
@@ -2082,11 +2472,11 @@ async def dashboard(request: Request):
         <!-- 交易和信号记录 -->
         <div class="grid-2">
             <div class="card">
-                <div class="card-title">📜 最近交易 TRADES</div>
+                <div class="card-title" data-i18n="recent_trades">📜 最近交易 TRADES</div>
                 <div id="trades-list" style="max-height: 300px; overflow-y: auto;"></div>
             </div>
             <div class="card">
-                <div class="card-title">📡 信号记录 SIGNALS</div>
+                <div class="card-title" data-i18n="signals_log">📡 信号记录 SIGNALS</div>
                 <div id="signals-list" style="max-height: 300px; overflow-y: auto;"></div>
             </div>
         </div>
@@ -2096,14 +2486,94 @@ async def dashboard(request: Request):
     <div class="status-bar">
         <div>
             <span class="status-dot active"></span>
-            <span>TRADING ENGINE ACTIVE</span>
+            <span data-i18n="engine_active">TRADING ENGINE ACTIVE</span>
         </div>
         <div id="cycle-info">CYCLE: -- | UPDATED: --</div>
     </div>
 
 <script src="/static/chart.min.js"></script>
 <script>
+    // v5.5.13 i18n: 中英文切换 (字典从 Python 注入,避免 f-string 转义)
+    const I18N = {i18n_json};
+    function applyI18n() {{
+        const lang = localStorage.getItem('lang') || 'zh';
+        document.documentElement.lang = lang;
+        const dict = I18N[lang] || I18N['zh'];
+        document.querySelectorAll('[data-i18n]').forEach(el => {{
+            const k = el.getAttribute('data-i18n');
+            if (dict[k]) el.textContent = dict[k];
+        }});
+        const btn = document.getElementById('lang-toggle');
+        if (btn) btn.textContent = dict['lang_btn'] || '🌐';
+        updateThemeButton();
+    }}
+    function toggleLang() {{
+        const cur = localStorage.getItem('lang') || 'zh';
+        localStorage.setItem('lang', cur === 'zh' ? 'en' : 'zh');
+        applyI18n();
+    }}
+    window.addEventListener('DOMContentLoaded', applyI18n);
+</script>
+<script>
     let priceChart, rsiChart, macdChart;
+    const THEME_KEY = 'quant_theme';
+
+    function getCurrentLangDict() {{
+        const lang = localStorage.getItem('lang') || 'zh';
+        return I18N[lang] || I18N['zh'];
+    }}
+
+    function updateThemeButton() {{
+        const btn = document.getElementById('theme-toggle');
+        if (!btn) return;
+        const dict = getCurrentLangDict();
+        btn.textContent = document.body.dataset.theme === 'dark'
+            ? (dict.theme_btn_light || '浅色')
+            : (dict.theme_btn_dark || '深色');
+    }}
+
+    function applyTheme(theme) {{
+        const nextTheme = theme === 'dark' ? 'dark' : 'light';
+        document.body.dataset.theme = nextTheme;
+        localStorage.setItem(THEME_KEY, nextTheme);
+        updateThemeButton();
+        applyChartTheme();
+    }}
+
+    function toggleTheme() {{
+        applyTheme(document.body.dataset.theme === 'dark' ? 'light' : 'dark');
+    }}
+
+    function getThemePalette() {{
+        const isDark = document.body.dataset.theme === 'dark';
+        return isDark
+            ? {{ grid: 'rgba(255,255,255,0.06)', tick: '#8a97aa', price: '#00d4ff', sma: '#ffa502', band: 'rgba(183,148,244,0.55)' }}
+            : {{ grid: 'rgba(100,116,139,0.16)', tick: '#64748b', price: '#2563eb', sma: '#d97706', band: 'rgba(124,58,237,0.42)' }};
+    }}
+
+    function applyChartTheme() {{
+        if (typeof Chart === 'undefined') return;
+        const palette = getThemePalette();
+        [priceChart, rsiChart, macdChart].forEach(chart => {{
+            if (!chart || !chart.options || !chart.options.scales) return;
+            Object.values(chart.options.scales).forEach(axis => {{
+                if (axis.grid) axis.grid.color = palette.grid;
+                if (axis.ticks) axis.ticks.color = palette.tick;
+            }});
+        }});
+        if (priceChart) {{
+            priceChart.data.datasets[0].borderColor = palette.price;
+            priceChart.data.datasets[1].borderColor = palette.sma;
+            priceChart.data.datasets[2].borderColor = palette.band;
+            priceChart.data.datasets[3].borderColor = palette.band;
+        }}
+        if (rsiChart) rsiChart.data.datasets[0].borderColor = document.body.dataset.theme === 'dark' ? '#b794f4' : '#7c3aed';
+        [priceChart, rsiChart, macdChart].forEach(chart => chart && chart.update('none'));
+    }}
+
+    document.addEventListener('DOMContentLoaded', function() {{
+        applyTheme(localStorage.getItem(THEME_KEY) || 'light');
+    }});
     
     // 显示Toast通知
     function showToast(message, type = 'info') {{
@@ -2438,31 +2908,32 @@ async def dashboard(request: Request):
             return;
         }}
         
+        const palette = getThemePalette();
         const chartOptions = {{
             responsive: true,
             maintainAspectRatio: false,
             animation: false,
             plugins: {{ legend: {{ display: false }} }},
             scales: {{
-                x: {{ grid: {{ color: 'rgba(255,255,255,0.05)' }}, ticks: {{ color: '#5a6a8a', maxTicksLimit: 8 }} }},
-                y: {{ grid: {{ color: 'rgba(255,255,255,0.05)' }}, ticks: {{ color: '#5a6a8a' }} }}
+                x: {{ grid: {{ color: palette.grid }}, ticks: {{ color: palette.tick, maxTicksLimit: 8 }} }},
+                y: {{ grid: {{ color: palette.grid }}, ticks: {{ color: palette.tick }} }}
             }}
         }};
 
         priceChart = new Chart(document.getElementById('priceChart'), {{
             type: 'line',
             data: {{ labels: [], datasets: [
-                {{ label: 'Price', data: [], borderColor: '#00d4ff', borderWidth: 2, fill: false, tension: 0, pointRadius: 0 }},
-                {{ label: 'SMA24', data: [], borderColor: '#ffa502', borderWidth: 1, fill: false, tension: 0, pointRadius: 0 }},
-                {{ label: 'BB Upper', data: [], borderColor: 'rgba(123,44,191,0.5)', borderWidth: 1, borderDash: [5,5], fill: false, pointRadius: 0 }},
-                {{ label: 'BB Lower', data: [], borderColor: 'rgba(123,44,191,0.5)', borderWidth: 1, borderDash: [5,5], fill: false, pointRadius: 0 }}
+                {{ label: 'Price', data: [], borderColor: palette.price, borderWidth: 2, fill: false, tension: 0, pointRadius: 0 }},
+                {{ label: 'SMA24', data: [], borderColor: palette.sma, borderWidth: 1, fill: false, tension: 0, pointRadius: 0 }},
+                {{ label: 'BB Upper', data: [], borderColor: palette.band, borderWidth: 1, borderDash: [5,5], fill: false, pointRadius: 0 }},
+                {{ label: 'BB Lower', data: [], borderColor: palette.band, borderWidth: 1, borderDash: [5,5], fill: false, pointRadius: 0 }}
             ]}},
             options: chartOptions
         }});
 
         rsiChart = new Chart(document.getElementById('rsiChart'), {{
             type: 'line',
-            data: {{ labels: [], datasets: [{{ label: 'RSI', data: [], borderColor: '#7b2cbf', borderWidth: 2, fill: false, tension: 0, pointRadius: 0 }}]}},
+            data: {{ labels: [], datasets: [{{ label: 'RSI', data: [], borderColor: document.body.dataset.theme === 'dark' ? '#b794f4' : '#7c3aed', borderWidth: 2, fill: false, tension: 0, pointRadius: 0 }}]}},
             options: {{
                 ...chartOptions,
                 scales: {{
@@ -2486,6 +2957,7 @@ async def dashboard(request: Request):
             data: {{ labels: [], datasets: [{{ label: 'MACD Hist', data: [], backgroundColor: [] }}]}},
             options: chartOptions
         }});
+        applyChartTheme();
     }}
     
     // 更新图表
@@ -2531,7 +3003,10 @@ async def dashboard(request: Request):
             // MACD图表
             macdChart.data.labels = data.labels;
             macdChart.data.datasets[0].data = data.macd_hist;
-            macdChart.data.datasets[0].backgroundColor = data.macd_hist.map(v => v >= 0 ? 'rgba(0,255,136,0.7)' : 'rgba(255,71,87,0.7)');
+            const isDark = document.body.dataset.theme === 'dark';
+            macdChart.data.datasets[0].backgroundColor = data.macd_hist.map(v => v >= 0
+                ? (isDark ? 'rgba(0,255,136,0.7)' : 'rgba(5,150,105,0.72)')
+                : (isDark ? 'rgba(255,71,87,0.7)' : 'rgba(220,38,38,0.72)'));
             macdChart.update('none');
             
         }} catch (e) {{ 
