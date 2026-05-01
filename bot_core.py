@@ -177,7 +177,13 @@ def _add_daily_volume(symbol: str, volume_usdt: float, side: str):
         set_meta(key, str(current + volume_usdt))
 
 
-def _check_daily_volume_limit(symbol: str, proposed_volume: float, max_daily_volume_pct: float, total_asset_value: float, side: str) -> Tuple[bool, str]:
+def _check_daily_volume_limit(
+    symbol: str,
+    proposed_volume: float,
+    max_daily_volume_pct: float,
+    total_asset_value: float,
+    side: str,
+) -> Tuple[bool, str]:
     """
     检查每日交易额限制（按总资产百分比）
     v5.2e: 用总买入量限制，不用净值（防止卖出后重置额度）
@@ -387,23 +393,55 @@ def one_step_for_symbol(client: BybitClient, cfg: Dict[str, Any], symbol: str) -
         futures['bal'] = executor.submit(_fetch_balance)
         futures['execs'] = executor.submit(_fetch_trade_history)
 
+    def _halt_no_trade(reason: str) -> Dict[str, Any]:
+        log.warning(f"[{symbol}] {reason}，本轮暂停交易")
+        log_signal(
+            now_ms, symbol, 0.0, 0.0, 50.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            "HOLD", reason
+        )
+        return {
+            "ts_ms": now_ms,
+            "symbol": symbol,
+            "last_price": 0.0,
+            "cost_price": 0.0,
+            "position_pct": 0.0,
+            "total_value_usdt": 0.0,
+            "decision": "HOLD",
+            "confidence": 0.0,
+            "reason": reason,
+            "placed": None,
+        }
+
     kl = futures['kl'].result()
+    if not kl or kl.get("retCode") != 0 or not ((kl.get("result") or {}).get("list")):
+        return _halt_no_trade(f"关键行情K线不可用: {kl.get('retMsg') if isinstance(kl, dict) else 'no response'}")
     df = enrich_indicators(klines_to_df(kl))
+    if df is None or df.empty:
+        return _halt_no_trade("关键行情K线解析为空")
 
     last_price = float("nan")
     try:
         tkr = futures['tkr'].result()
+        if not tkr or tkr.get("retCode") != 0:
+            return _halt_no_trade(f"关键ticker不可用: {tkr.get('retMsg') if isinstance(tkr, dict) else 'no response'}")
         last_price = float(tkr["result"]["list"][0]["lastPrice"])
     except Exception:
-        pass
+        return _halt_no_trade("关键ticker价格解析失败")
 
     ob = futures['ob'].result()
     bid1, ask1 = client.extract_best_prices(ob)
+    if bid1 is None or ask1 is None or bid1 <= 0 or ask1 <= 0:
+        return _halt_no_trade(f"关键盘口不可用: {ob.get('retMsg') if isinstance(ob, dict) else 'no response'}")
     instr_json = futures['instr'].result()
+    if not instr_json or instr_json.get("retCode") != 0 or not ((instr_json.get("result") or {}).get("list")):
+        return _halt_no_trade(f"交易规格不可用: {instr_json.get('retMsg') if isinstance(instr_json, dict) else 'no response'}")
     instr = parse_instr_filters(instr_json)
 
     # === 获取余额和成本 (v4.4: 已并行获取) ===
     base_bal, usdt_bal = futures['bal'].result()
+    if base_bal <= 0 and usdt_bal <= 0:
+        return _halt_no_trade("账户余额不可用或为0")
     log.info(f"[{symbol}] 余额: {base_bal:.4f} SOL + ${usdt_bal:.2f} USDT")
     import math
 
@@ -768,11 +806,25 @@ def one_step_for_symbol(client: BybitClient, cfg: Dict[str, Any], symbol: str) -
         else:
             # 计算交易数量
             trade_pct = signal.position_pct
+            if decision == "BUY":
+                hard_max_pos = float(strategy_cfg.get("max_position_pct", 90))
+                remaining_pos = hard_max_pos - position.position_pct
+                if remaining_pos <= 0:
+                    decision = "HOLD"
+                    reason = f"硬仓位上限：当前仓位{position.position_pct:.0f}%已达到上限{hard_max_pos:.0f}%，禁止继续买入"
+                    log.info(f"[{symbol}] {reason}")
+                    trade_pct = 0.0
+                else:
+                    trade_pct = min(trade_pct, remaining_pos)
+
             leverage_enabled = bool(risk_cfg.get("leverage_enabled", False))
             leverage = float(risk_cfg.get("leverage", 1.0)) if leverage_enabled else 1.0
-            qty, qty_reason = calculate_trade_qty(
-                decision, position, trade_pct, last_price, instr, min_usdt_per_buy, leverage
-            )
+            if decision in ("BUY", "SELL"):
+                qty, qty_reason = calculate_trade_qty(
+                    decision, position, trade_pct, last_price, instr, min_usdt_per_buy, leverage
+                )
+            else:
+                qty, qty_reason = 0.0, reason
             
             if qty > 0:
                 # 计算交易金额并检查每日额度（按总资产百分比，使用净交易额）

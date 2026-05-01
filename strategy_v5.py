@@ -1274,8 +1274,8 @@ class SmartStrategy:
             hours_since_sell = self._time_since_min(s.last_sell_time) / 60
             if hours_since_sell < 4:
                 retrace_pct = (s.last_sell_price - s.last_price) / s.last_sell_price * 100
-                if retrace_pct < 1.0:
-                    log.debug(f"[TREND-RETRACE] 距上次卖出{hours_since_sell:.1f}h+回撤{retrace_pct:.2f}%<1.5%")
+                if retrace_pct < 0.5:
+                    log.debug(f"[TREND-RETRACE] 距上次卖出{hours_since_sell:.1f}h+回撤{retrace_pct:.2f}%<0.5%")
                     return None
         if trend_score_count >= 4 and not_bear:  # 7条件满足4个+非熊市
             effective_max = getattr(self, '_dynamic_max_pos', self.max_position_pct)
