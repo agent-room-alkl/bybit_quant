@@ -30,7 +30,7 @@ STRATEGY_CONFIG = {
         "trailing_stop_pct": 2.0,
         "max_position_pct": 65,
         "min_position_pct": 10,
-        "base_trade_pct": 6,
+        "base_trade_pct": 7,
         "max_atr_pct": 5.0,
         "min_confirmation": 4,
         "scalp_mode": False,

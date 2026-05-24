@@ -1837,8 +1837,16 @@ class SmartStrategy:
             # 早期下跌预警
             early_n, early_reasons = self._early_bearish(s, pullback)
             is_full_profit = pos >= self.max_position_pct and profit > self.MIN_PROFIT_PCT
+            if s.regime == REGIME_SIDEWAYS:
+                # v5.5.15: SIDEWAYS 减摩擦 — early_warning 在震荡里多为噪音，
+                # 抬高门槛减少碎卖与回补摩擦。BULL/BEAR 不动。
+                early_required_n = 4
+                early_min_profit = 1.5
+            else:
+                early_required_n = 2
+                early_min_profit = 0.3
 
-            if early_n >= 2 and profit > 0.3:
+            if early_n >= early_required_n and profit > early_min_profit:
                 # 预警卖出
                 if profit >= 2.0 and early_n >= 3:
                     depth_m, trend_m = 0.6, 0.7
