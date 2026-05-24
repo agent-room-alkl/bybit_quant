@@ -119,6 +119,31 @@ class TradeSignal:
     stop_loss: Optional[float] = None
 
 
+@dataclass
+class ShadowDecision:
+    """Shadow-only diagnostics; never changes live trade behavior."""
+    risk_score: float
+    risk_level: str
+    shadow_action: str
+    sell_rebuy_block: bool
+    bull_exit_mode: str
+    daily_drawdown_shadow: str
+    accumulation_signal: bool
+    adaptive_exit: Dict[str, Any] = None
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "risk_score": round(self.risk_score, 3),
+            "risk_level": self.risk_level,
+            "shadow_action": self.shadow_action,
+            "sell_rebuy_block": self.sell_rebuy_block,
+            "bull_exit_mode": self.bull_exit_mode,
+            "daily_drawdown_shadow": self.daily_drawdown_shadow,
+            "accumulation_signal": self.accumulation_signal,
+            "adaptive_exit": self.adaptive_exit or {},
+        }
+
+
 # ── 主策略类 ──────────────────────────────────────────────────────
 
 class SmartStrategy:
@@ -629,6 +654,131 @@ class SmartStrategy:
 
         max_single = min(12, self.base_trade_pct * 1.5)
         return max(self.base_trade_pct * 0.3, min(self.base_trade_pct * final, max_single))
+
+    # ── Shadow 诊断：只记录，不影响交易 ─────────────────────────
+
+    def classify_shadow(
+        self,
+        s: MarketState,
+        pos: float,
+        daily_pnl_pct: float = 0.0,
+        early_warning_count_24h: int = 0,
+    ) -> ShadowDecision:
+        """
+        Calculate risk/action diagnostics for shadow mode.
+        This method is intentionally side-effect free: it must never change
+        live BUY/SELL/HOLD decisions.
+        """
+        reasons = []
+        score = 0.0
+        atr = max(s.atr_pct, 0.01)
+
+        if s.recent_high > 0 and s.last_price > 0:
+            pullback_atr = ((s.recent_high - s.last_price) / s.last_price * 100) / atr
+            if pullback_atr > 1.5:
+                score += 0.30
+                reasons.append("pullback_gt_1_5_atr")
+            elif pullback_atr > 1.0:
+                score += 0.15
+                reasons.append("pullback_gt_1_atr")
+
+        if s.volume_ratio > 2.0:
+            score += 0.20
+            reasons.append("volume_spike")
+        elif s.volume_ratio > 1.5:
+            score += 0.10
+            reasons.append("volume_elevated")
+
+        support_break_pct = 0.0
+        if s.support > 0 and s.last_price > 0 and s.last_price < s.support:
+            support_break_pct = (s.support - s.last_price) / s.support * 100
+        if support_break_pct > 0.3 or (s.sma72 > 0 and s.last_price < s.sma72 and s.trend_score < -15):
+            score += 0.20
+            reasons.append("structure_break")
+
+        if s.btc_long_term_trend_pct < -2.0 or s.btc_trend_score < -40:
+            score += 0.15
+            reasons.append("btc_pressure")
+
+        if s.news_sentiment <= -50 and s.news_confidence >= 0.7:
+            score += 0.15
+            reasons.append("news_strong_bearish")
+        elif s.news_risk_level == "high":
+            score += 0.08
+            reasons.append("news_high_risk")
+
+        if early_warning_count_24h >= 5:
+            score += 0.10
+            reasons.append("warning_cluster")
+
+        score = min(1.0, score)
+        if score < 0.30:
+            risk_level = "L1_NOISE"
+            shadow_action = "hold"
+        elif score < 0.60:
+            risk_level = "L2_WEAKENING"
+            shadow_action = "reduce_30" if pos > 40 else "hold"
+        elif score < 0.85:
+            risk_level = "L3_TRUE_RISK"
+            shadow_action = "reduce_60" if pos > 25 else "hold"
+        else:
+            risk_level = "L4_BLACK_SWAN"
+            shadow_action = "exit" if pos > 10 else "halt"
+
+        sell_rebuy_block = False
+        if s.last_sell_time > 0 and s.last_sell_price > 0 and s.last_price > 0:
+            since_sell = self._time_since_min(s.last_sell_time)
+            band_pct = max(0.6, atr)
+            price_band_pct = abs(s.last_price - s.last_sell_price) / s.last_sell_price * 100
+            trend_confirmed = s.trend_score > 30 and s.h1_trend_score > 20 and s.adx > 20
+            sell_rebuy_block = since_sell < 180 and price_band_pct <= band_pct and not trend_confirmed
+
+        bull_exit_mode = "normal"
+        if s.regime == REGIME_BULL:
+            true_risk = risk_level in ("L3_TRUE_RISK", "L4_BLACK_SWAN")
+            bull_exit_mode = "atr_trailing_only" if not true_risk else "risk_override"
+
+        daily_drawdown_shadow = "ok"
+        if daily_pnl_pct <= -self.DAILY_DRAWDOWN_HALT_PCT:
+            daily_drawdown_shadow = "halt_24h"
+        elif daily_pnl_pct <= -self.DAILY_DRAWDOWN_HALT_PCT * 0.5:
+            daily_drawdown_shadow = "warning"
+
+        # Event study showed the first accumulation heuristic had too many
+        # false positives. Keep the field but disable it until v2 has SMA200
+        # and rolling-volume history available in MarketState.
+        accumulation_signal = False
+
+        adaptive_exit = {}
+        try:
+            from risk_modules import AdaptiveExitManager
+            entry_price = s.cost_price if s.cost_price > 0 else s.last_price
+            high_since_entry = max(s.recent_high or 0.0, s.last_price)
+            initial_stop = entry_price * (1 - self.stop_loss_pct / 100.0) if entry_price > 0 else None
+            adaptive_exit = AdaptiveExitManager().evaluate(
+                last_price=s.last_price,
+                entry_price=entry_price,
+                high_since_entry=high_since_entry,
+                atr_pct=s.atr_pct,
+                initial_stop_price=initial_stop,
+                is_bull_regime=s.regime == REGIME_BULL,
+                risk_level=risk_level,
+            ).as_dict()
+        except Exception as e:
+            adaptive_exit = {"error": str(e)}
+
+        decision = ShadowDecision(
+            risk_score=score,
+            risk_level=risk_level,
+            shadow_action=shadow_action,
+            sell_rebuy_block=sell_rebuy_block,
+            bull_exit_mode=bull_exit_mode,
+            daily_drawdown_shadow=daily_drawdown_shadow,
+            accumulation_signal=accumulation_signal,
+            adaptive_exit=adaptive_exit,
+        )
+        log.debug("[SHADOW] %s | reasons=%s", decision.as_dict(), ",".join(reasons))
+        return decision
 
     # ── analyze 主调度 ──────────────────────────────────────────
 

@@ -124,7 +124,8 @@ def recent_trades(limit: int = 50) -> List[Dict[str, Any]]:
 def log_signal(ts_ms: int, symbol: str, last_price: float, cost_price: float,
                rsi14: float, sma12: float, sma24: float, sma72: float,
                vol: float, bid1: float, ask1: float,
-               decision: str, reason: str):
+               decision: str, reason: str,
+               extra: Optional[Dict[str, Any]] = None):
     record = {
         "ts_ms": int(ts_ms),
         "symbol": symbol,
@@ -140,6 +141,8 @@ def log_signal(ts_ms: int, symbol: str, last_price: float, cost_price: float,
         "decision": decision,
         "reason": reason,
     }
+    if extra:
+        record.update(extra)
     with _lock:
         _signals.insert(0, record)
         if len(_signals) > MAX_SIGNALS:

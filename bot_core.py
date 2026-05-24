@@ -15,7 +15,7 @@ from trade_logic import (
     RiskManager, PositionInfo
 )
 from indicators import klines_to_df, enrich_indicators, get_market_condition
-from db import init_db, log_trade, log_signal, set_meta, get_meta
+from db import init_db, log_trade, log_signal, set_meta, get_meta, recent_signals
 from cost import get_spot_avg_cost, get_spot_avg_cost_by_position, get_cost_price
 from strategy_v5 import should_trade_gate, SmartStrategy, MarketState, create_smart_strategy
 from news_sentiment import get_news_sentiment, get_cached_score, get_cached_sentiment
@@ -711,6 +711,23 @@ def one_step_for_symbol(client: BybitClient, cfg: Dict[str, Any], symbol: str) -
     decision = signal.action
     reason = signal.reason
     confidence = signal.confidence
+    cutoff_24h_ms = now_ms - DAY_MS
+    try:
+        early_warning_count_24h = sum(
+            1 for row in recent_signals(symbol, limit=500)
+            if int(row.get("ts_ms", 0)) >= cutoff_24h_ms and "提前预警" in str(row.get("reason", ""))
+        )
+    except Exception:
+        early_warning_count_24h = 0
+
+    shadow = strategy.classify_shadow(
+        market_state,
+        position.position_pct,
+        daily_pnl_pct=daily_pnl,
+        early_warning_count_24h=early_warning_count_24h,
+    )
+    shadow_fields = shadow.as_dict()
+    shadow_fields["early_warning_count_24h"] = early_warning_count_24h
     
     # === 风控检查 ===
     order_to_send = None
@@ -865,7 +882,7 @@ def one_step_for_symbol(client: BybitClient, cfg: Dict[str, Any], symbol: str) -
     log_signal(
         now_ms, symbol, last_price, cost_price, rsi14,
         sma7, sma24, sma72, vol, bid1 or 0.0, ask1 or 0.0,
-        decision, reason
+        decision, reason, extra=shadow_fields
     )
 
     # === 执行交易 ===
@@ -971,7 +988,8 @@ def one_step_for_symbol(client: BybitClient, cfg: Dict[str, Any], symbol: str) -
         "decision": decision,
         "confidence": confidence,
         "reason": reason,
-        "placed": placed
+        "placed": placed,
+        "shadow": shadow_fields
     }
     
     return snapshot
