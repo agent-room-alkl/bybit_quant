@@ -200,6 +200,12 @@ class BybitClient:
         if symbol: params["symbol"] = symbol
         return self._private_get("/v5/order/realtime", params)
 
+    def cancel_all_orders(self, symbol: Optional[str]=None) -> Dict[str,Any]:
+        """撤销所有挂单（spot）"""
+        body: Dict[str, Any] = {"category": "spot"}
+        if symbol: body["symbol"] = symbol
+        return self._private_post("/v5/order/cancel-all", body)
+
     def get_account_info(self) -> Dict[str,Any]:
         """获取账户信息，包括杠杆交易状态"""
         return self._private_get("/v5/account/info", {})

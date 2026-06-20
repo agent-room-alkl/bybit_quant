@@ -1027,6 +1027,29 @@ async def manual_trade(request: Request, user: Dict = Depends(get_current_user))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.post("/api/cancel_orders")
+async def cancel_orders(user: Dict = Depends(get_current_user)):
+    """撤销当前交易对的所有挂单"""
+    try:
+        symbols = cfg.get("symbols", [])
+        symbol = symbols[0] if symbols else "SOLUSDT"
+        client = BybitClient(api_key=cfg.get("api_key"), api_secret=cfg.get("api_secret"),
+                             testnet=cfg.get("testnet", True),
+                             account_type=cfg.get("account_type", "UNIFIED"))
+        resp = client.cancel_all_orders(symbol=symbol)
+        if BybitClient.ok(resp):
+            cancelled = len((resp.get("result") or {}).get("list", []))
+            log.info(f"撤销挂单成功: {cancelled} 笔, symbol={symbol}")
+            return JSONResponse({"status": "OK", "cancelled": cancelled, "symbol": symbol})
+        else:
+            msg = resp.get("retMsg", "unknown error")
+            log.warning(f"撤销挂单失败: {msg}")
+            return JSONResponse({"status": "ERROR", "message": msg}, status_code=400)
+    except Exception as e:
+        log.error(f"撤销挂单异常: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/api/update_daily_limit")
 async def update_daily_limit(request: Request, user: Dict = Depends(get_current_user)):
     """更新每日交易额度限制（百分比模式）"""
@@ -2371,6 +2394,13 @@ async def dashboard(request: Request):
                         🔴 卖出挂单
                     </button>
                 </div>
+                <div style="margin-top: 10px; display: flex; justify-content: center;">
+                    <button class="trade-btn" id="btn-cancel" onclick="cancelOrders()"
+                        style="background: linear-gradient(135deg, #4a3030, #6b2a2a); border: 1px solid #8b3a3a;
+                               color: #e06060; font-size: 0.78rem; padding: 7px 20px; width: auto; min-width: 140px;">
+                        ✖ 取消所有挂单
+                    </button>
+                </div>
                 <div style="margin-top: 15px; display: flex; justify-content: space-between; font-size: 0.8rem;">
                     <div style="text-align: left;">
                         <div style="color: #5a6a8a;">推荐买入价</div>
@@ -2672,6 +2702,30 @@ async def dashboard(request: Request):
         }};
     }});
     
+    // 取消所有挂单
+    async function cancelOrders() {{
+        const btn = document.getElementById('btn-cancel');
+        const orig = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⏳ 撤单中...';
+        try {{
+            const response = await fetch('/api/cancel_orders', {{ method: 'POST' }});
+            const result = await response.json();
+            if (result.status === 'OK') {{
+                const n = result.cancelled ?? 0;
+                showToast(n > 0 ? `✅ 已撤销 ${{n}} 笔挂单` : '✅ 当前无挂单', 'success');
+                if (n > 0) setTimeout(updateData, 800);
+            }} else {{
+                showToast(`❌ 撤单失败: ${{result.message || result.error}}`, 'error');
+            }}
+        }} catch (e) {{
+            showToast(`❌ 请求失败: ${{e.message}}`, 'error');
+        }} finally {{
+            btn.disabled = false;
+            btn.textContent = orig;
+        }}
+    }}
+
     // 手动交易
     async function manualTrade(side) {{
         const btnBuy = document.getElementById('btn-buy');
