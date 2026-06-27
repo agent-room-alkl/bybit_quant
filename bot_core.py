@@ -272,22 +272,23 @@ def _get_balances(client: BybitClient, symbol: str) -> Tuple[float, float]:
                 for coin_info in coins:
                     coin = coin_info.get("coin", "")
                     if coin.upper() == quote.upper():
-                        # 尝试多个字段：walletBalance, availableToWithdraw, free, locked
-                        usdt_bal = float(coin_info.get("walletBalance", 0) or 0)
-                        if usdt_bal == 0:
-                            usdt_bal = float(coin_info.get("availableToWithdraw", 0) or 0)
+                        # 真正可动用资金优先：availableToWithdraw > free > (walletBalance-locked)
+                        # 绝不使用 availableToBorrow（可借额度，非自有资金，会虚高余额）
+                        usdt_bal = float(coin_info.get("availableToWithdraw", 0) or 0)
                         if usdt_bal == 0:
                             usdt_bal = float(coin_info.get("free", 0) or 0)
                         if usdt_bal == 0:
-                            usdt_bal = float(coin_info.get("availableToBorrow", 0) or 0)
+                            _wb = float(coin_info.get("walletBalance", 0) or 0)
+                            _lk = float(coin_info.get("locked", 0) or 0)
+                            usdt_bal = max(0.0, _wb - _lk)
                     elif coin.upper() == base.upper():
-                        base_bal = float(coin_info.get("walletBalance", 0) or 0)
-                        if base_bal == 0:
-                            base_bal = float(coin_info.get("availableToWithdraw", 0) or 0)
+                        base_bal = float(coin_info.get("availableToWithdraw", 0) or 0)
                         if base_bal == 0:
                             base_bal = float(coin_info.get("free", 0) or 0)
                         if base_bal == 0:
-                            base_bal = float(coin_info.get("availableToBorrow", 0) or 0)
+                            _wb = float(coin_info.get("walletBalance", 0) or 0)
+                            _lk = float(coin_info.get("locked", 0) or 0)
+                            base_bal = max(0.0, _wb - _lk)
         elif balance:
             # API调用失败，记录错误信息
             ret_code = balance.get("retCode", -1)
