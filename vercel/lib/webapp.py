@@ -710,7 +710,9 @@ async def get_indicators():
             data["news_confidence"] = news.get("confidence", 0)
             data["news_risk_level"] = news.get("risk_level", "medium")
             data["news_action"] = news.get("suggested_action", "hold")
-            data["news_summary"] = news.get("summary", "")
+            data["news_summary"] = news.get("summary", "") or (
+                f"新闻情绪分数 {news.get('score', 0)}，风险级别 {news.get('risk_level', 'medium')}，建议 {news.get('suggested_action', 'hold')}"
+            )
             data["news_key_factors"] = (news.get("key_factors") or [])[:3]
             data["news_age_min"] = news.get("age_min", 999)
         except Exception:

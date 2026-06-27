@@ -82,7 +82,8 @@ def _get_news_fields(cfg: dict) -> dict:
             try:
                 d = _json.loads(cached)
                 age_min = (now - int(d.get("ts", 0))) / 60000.0
-                if age_min < TTL_MIN:
+                has_detail = bool(d.get("summary")) or bool(d.get("key_factors"))
+                if age_min < TTL_MIN and has_detail:
                     return {
                         "news_sentiment": d.get("score", 0),
                         "news_confidence": d.get("confidence", 0.0),
