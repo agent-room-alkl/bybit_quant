@@ -2,12 +2,12 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/cron/tick",
+      "path": "/api/tick",
       "schedule": "* * * * *"
     }
   ],
   "functions": {
-    "api/cron/tick.py": {
+    "api/tick.py": {
       "maxDuration": 60,
       "memory": 1024,
       "includeFiles": "lib/**"

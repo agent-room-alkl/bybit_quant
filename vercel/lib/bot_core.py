@@ -15,7 +15,7 @@ from trade_logic import (
     RiskManager, PositionInfo
 )
 from indicators import klines_to_df, enrich_indicators, get_market_condition
-from db import init_db, log_trade, log_signal, set_meta, get_meta, recent_signals
+from db_pg import init_db, log_trade, log_signal, set_meta, get_meta, recent_signals
 from cost import get_spot_avg_cost, get_spot_avg_cost_by_position, get_cost_price
 from strategy_v5 import should_trade_gate, SmartStrategy, MarketState, create_smart_strategy
 from news_sentiment import get_news_sentiment, get_cached_score, get_cached_sentiment
