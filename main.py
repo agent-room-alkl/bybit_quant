@@ -698,6 +698,8 @@ async def get_indicators():
                         "risk_level": _d.get("risk_level", "medium"),
                         "suggested_action": _d.get("suggested_action", "hold"),
                         "summary": _d.get("summary", ""),
+                        "summary_zh": _d.get("summary_zh", _d.get("summary", "")),
+                        "summary_en": _d.get("summary_en", _d.get("summary", "")),
                         "key_factors": _d.get("key_factors", []),
                         "age_min": round(_age, 1),
                     }
@@ -711,12 +713,16 @@ async def get_indicators():
             data["news_risk_level"] = news.get("risk_level", "medium")
             data["news_action"] = news.get("suggested_action", "hold")
             data["news_summary"] = news.get("summary", "")
+            data["news_summary_zh"] = news.get("summary_zh", news.get("summary", ""))
+            data["news_summary_en"] = news.get("summary_en", news.get("summary", ""))
             data["news_key_factors"] = (news.get("key_factors") or [])[:3]
             data["news_age_min"] = news.get("age_min", 999)
         except Exception:
             data["news_sentiment"] = 0
             data["news_key_factors"] = []
             data["news_summary"] = ""
+            data["news_summary_zh"] = ""
+            data["news_summary_en"] = ""
 
         # 统一处理 NaN/Inf，避免 Out of range float JSON 错误
         clean_data = make_json_serializable(data)
@@ -3398,7 +3404,13 @@ async def dashboard(request: Request):
                     nlEl.style.color = nsEl.style.color;
                 }}
                 const smEl = document.getElementById('news-summary');
-                if (smEl) smEl.textContent = ind.news_summary || '暂无数据';
+                if (smEl) {{
+                    const _lang = localStorage.getItem('lang') || 'zh';
+                    const _sum = _lang === 'en'
+                        ? (ind.news_summary_en || ind.news_summary)
+                        : (ind.news_summary_zh || ind.news_summary);
+                    smEl.textContent = _sum || (_lang === 'en' ? 'No news data' : '暂无数据');
+                }}
                 const ffEl = document.getElementById('news-factors');
                 if (ffEl) {{
                     ffEl.innerHTML = nf.map((f, i) => {{

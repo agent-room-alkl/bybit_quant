@@ -104,7 +104,8 @@ ANALYSIS_PROMPT = """你是一个专业的加密货币宏观分析师。根据�
     "score": <整数, -100到+100, 0=中性, 正=利好, 负=利空>,
     "confidence": <浮点数, 0.0到1.0, 你对判断的信心>,
     "key_factors": ["因素1", "因素2", "因素3"],
-    "summary": "一句话总结当前宏观环境",
+    "summary_zh": "一句话中文总结当前宏观环境",
+    "summary_en": "one-sentence English summary of the current macro environment",
     "risk_level": "<low/medium/high>",
     "suggested_action": "<aggressive_buy/cautious_buy/hold/cautious_sell/aggressive_sell>"
 }}
@@ -152,6 +153,10 @@ def _call_llm_api(api_key: str, headlines: list, model: str = "gpt-4o") -> Dict:
         # 校验 score 范围
         result["score"] = max(-100, min(100, int(result.get("score", 0))))
         result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
+        # 双语摘要：兼容旧字段 summary
+        result.setdefault("summary_zh", result.get("summary", ""))
+        result.setdefault("summary_en", result.get("summary", ""))
+        result["summary"] = result.get("summary_zh") or result.get("summary_en") or ""
 
         log.info(f"[NEWS] GPT 情绪分析: score={result['score']}, "
                  f"conf={result['confidence']:.0%}, action={result.get('suggested_action', 'hold')}")
@@ -240,18 +245,6 @@ def get_cached_score() -> int:
 
 def get_cached_sentiment() -> Dict[str, Any]:
     """快速获取缓存的完整情绪数据"""
-    # Vercel/serverless: tick 函数把新闻情绪缓存写入 Postgres meta。
-    # Web 看板和 tick 不共享内存，优先读 PG，读不到再退回进程内缓存。
-    try:
-        import db_pg
-        raw = db_pg.get_meta("_news_cache")
-        if raw:
-            data = json.loads(raw)
-            ts = float(data.get("timestamp", 0) or 0)
-            age = time.time() - ts if ts > 0 else 999 * 60
-            return {**data, "cached": True, "age_min": round(age / 60, 1)}
-    except Exception:
-        pass
     with _lock:
         age = time.time() - _cache["timestamp"] if _cache["timestamp"] > 0 else 999
         return {**_cache, "cached": True, "age_min": round(age / 60, 1)}

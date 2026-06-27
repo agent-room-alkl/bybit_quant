@@ -82,7 +82,8 @@ def _get_news_fields(cfg: dict) -> dict:
             try:
                 d = _json.loads(cached)
                 age_min = (now - int(d.get("ts", 0))) / 60000.0
-                has_detail = bool(d.get("summary")) or bool(d.get("key_factors"))
+                # 需要双语摘要齐全才算完整缓存，否则重新抓(让旧的单语缓存自动升级)
+                has_detail = bool(d.get("summary_zh")) and bool(d.get("summary_en"))
                 if age_min < TTL_MIN and has_detail:
                     return {
                         "news_sentiment": d.get("score", 0),
@@ -102,7 +103,11 @@ def _get_news_fields(cfg: dict) -> dict:
             "risk_level": result.get("risk_level", "medium"),
             "suggested_action": result.get("suggested_action", "hold"),
             "summary": result.get("summary", ""),
+            "summary_zh": result.get("summary_zh", result.get("summary", "")),
+            "summary_en": result.get("summary_en", result.get("summary", "")),
             "key_factors": (result.get("key_factors") or [])[:3],
+            "key_factors_zh": (result.get("key_factors_zh") or result.get("key_factors") or [])[:3],
+            "key_factors_en": (result.get("key_factors_en") or result.get("key_factors") or [])[:3],
             "ts": now,
         }
         try:
