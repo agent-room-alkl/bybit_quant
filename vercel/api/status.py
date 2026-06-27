@@ -8,10 +8,11 @@ import os
 import sys
 import json
 
-_HERE = os.path.dirname(__file__)
-_LIB = os.path.abspath(os.path.join(_HERE, "..", "lib"))
-if _LIB not in sys.path:
-    sys.path.insert(0, _LIB)
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in [os.path.abspath(os.path.join(_HERE, "..", "lib")),
+           os.path.join(os.getcwd(), "lib"), "/var/task/lib"]:
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import db_pg  # noqa: E402
 

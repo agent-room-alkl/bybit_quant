@@ -10,11 +10,18 @@ import sys
 import json
 import logging
 
-# 让 lib/ 下的策略模块可被 import
-_HERE = os.path.dirname(__file__)
-_LIB = os.path.abspath(os.path.join(_HERE, "..", "..", "lib"))
-if _LIB not in sys.path:
-    sys.path.insert(0, _LIB)
+# 让 lib/ 下的策略模块可被 import。Vercel 不同运行环境 cwd 可能不同，
+# 多候选路径兜底（相对本文件、相对 cwd、相对 /var/task）。
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CANDIDATES = [
+    os.path.abspath(os.path.join(_HERE, "..", "..", "lib")),
+    os.path.join(os.getcwd(), "lib"),
+    "/var/task/lib",
+    os.path.abspath(os.path.join(_HERE, "..", "lib")),
+]
+for _p in _CANDIDATES:
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
 
 logging.basicConfig(level=os.environ.get("BYBIT_LOG_LEVEL", "INFO"))
 log = logging.getLogger("auto_bot")
