@@ -683,15 +683,35 @@ async def get_indicators():
         }
 
         # === 新闻情绪数据 ===
+        # 优先读 PG 缓存(_news_cache, serverless 下由 cron tick 写入)；
+        # 读不到再退回内存缓存(本地常驻进程有效)。两种部署都能显示。
         try:
-            from news_sentiment import get_cached_sentiment
-            news = get_cached_sentiment()
+            news = None
+            try:
+                _nc = get_meta("_news_cache")
+                if _nc:
+                    _d = json.loads(_nc)
+                    _age = (int(time.time() * 1000) - int(_d.get("ts", 0))) / 60000.0
+                    news = {
+                        "score": _d.get("score", 0),
+                        "confidence": _d.get("confidence", 0),
+                        "risk_level": _d.get("risk_level", "medium"),
+                        "suggested_action": _d.get("suggested_action", "hold"),
+                        "summary": _d.get("summary", ""),
+                        "key_factors": _d.get("key_factors", []),
+                        "age_min": round(_age, 1),
+                    }
+            except Exception:
+                news = None
+            if news is None:
+                from news_sentiment import get_cached_sentiment
+                news = get_cached_sentiment()
             data["news_sentiment"] = news.get("score", 0)
             data["news_confidence"] = news.get("confidence", 0)
             data["news_risk_level"] = news.get("risk_level", "medium")
             data["news_action"] = news.get("suggested_action", "hold")
             data["news_summary"] = news.get("summary", "")
-            data["news_key_factors"] = news.get("key_factors", [])[:3]
+            data["news_key_factors"] = (news.get("key_factors") or [])[:3]
             data["news_age_min"] = news.get("age_min", 999)
         except Exception:
             data["news_sentiment"] = 0

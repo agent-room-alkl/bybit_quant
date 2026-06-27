@@ -100,6 +100,8 @@ def _get_news_fields(cfg: dict) -> dict:
             "confidence": result.get("confidence", 0.0),
             "risk_level": result.get("risk_level", "medium"),
             "suggested_action": result.get("suggested_action", "hold"),
+            "summary": result.get("summary", ""),
+            "key_factors": (result.get("key_factors") or [])[:3],
             "ts": now,
         }
         try:
