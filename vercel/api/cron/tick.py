@@ -19,6 +19,7 @@ _CANDIDATES = [
     "/var/task/lib",
     os.path.abspath(os.path.join(_HERE, "..", "lib")),
 ]
+_LIB = next((_p for _p in _CANDIDATES if os.path.isdir(_p)), _CANDIDATES[0])
 for _p in _CANDIDATES:
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
