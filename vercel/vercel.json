@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/tick",
+      "schedule": "* * * * *"
+    }
+  ],
+  "functions": {
+    "api/cron/tick.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
+}
