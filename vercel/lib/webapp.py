@@ -1080,14 +1080,7 @@ async def manual_order(request: Request, user: Dict = Depends(get_current_user))
             if (cfg.get("risk", {}) or {}).get("leverage_enabled", False) else 1.0
         isLeverage = 1 if leverage >= 2.0 else 0
 
-        # 安全闸：影子期(ENABLE_TRADING=false)默认不真实下单，除非显式开 ALLOW_MANUAL_TRADING
-        _allow = (str(os.getenv("ALLOW_MANUAL_TRADING", "")).lower() == "true"
-                  or bool(cfg.get("enable_trading", False)))
-        if not _allow:
-            log.info(f"[DRYRUN] 手动限价单(未开启真实下单): {side} {qty} @ {price}")
-            return JSONResponse({"status": "DRYRUN", "message": "影子模式：未真实下单（设 ALLOW_MANUAL_TRADING=true 或 ENABLE_TRADING=true 才真实挂单）",
-                                 "side": side, "qty": qty, "price": price, "notional": notional})
-
+        # 手动限价单始终真实下单（Robin 明确要求）。防误触靠：登录鉴权 + 前端确认弹窗。
         resp = client.place_order(
             symbol=symbol,
             side="Buy" if side == "BUY" else "Sell",
