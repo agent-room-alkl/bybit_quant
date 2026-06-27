@@ -240,6 +240,18 @@ def get_cached_score() -> int:
 
 def get_cached_sentiment() -> Dict[str, Any]:
     """快速获取缓存的完整情绪数据"""
+    # Vercel/serverless: tick 函数把新闻情绪缓存写入 Postgres meta。
+    # Web 看板和 tick 不共享内存，优先读 PG，读不到再退回进程内缓存。
+    try:
+        import db_pg
+        raw = db_pg.get_meta("_news_cache")
+        if raw:
+            data = json.loads(raw)
+            ts = float(data.get("timestamp", 0) or 0)
+            age = time.time() - ts if ts > 0 else 999 * 60
+            return {**data, "cached": True, "age_min": round(age / 60, 1)}
+    except Exception:
+        pass
     with _lock:
         age = time.time() - _cache["timestamp"] if _cache["timestamp"] > 0 else 999
         return {**_cache, "cached": True, "age_min": round(age / 60, 1)}
