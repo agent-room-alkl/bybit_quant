@@ -1,19 +1,21 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
   "crons": [
     {
       "path": "/api/tick",
       "schedule": "* * * * *"
     }
   ],
-  "functions": {
-    "api/tick.py": {
-      "maxDuration": 60,
-      "memory": 1024,
-      "includeFiles": "lib/**"
+  "builds": [
+    {
+      "src": "api/tick.py",
+      "use": "@vercel/python",
+      "config": { "includeFiles": ["lib/**"], "maxLambdaSize": "250mb" }
     },
-    "api/status.py": {
-      "includeFiles": "lib/**"
+    {
+      "src": "api/status.py",
+      "use": "@vercel/python",
+      "config": { "includeFiles": ["lib/**"] }
     }
-  }
+  ]
 }
