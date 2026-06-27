@@ -14,21 +14,13 @@
       "config": { "includeFiles": ["lib/**"], "maxLambdaSize": "250mb" }
     },
     {
-      "src": "api/status.py",
-      "use": "@vercel/python",
-      "config": { "includeFiles": ["lib/**"] }
-    },
-    {
-      "src": "api/market.py",
+      "src": "api/app.py",
       "use": "@vercel/python",
       "config": { "includeFiles": ["lib/**"], "maxLambdaSize": "250mb" }
     }
   ],
   "routes": [
     { "src": "/api/tick", "dest": "/api/tick.py" },
-    { "src": "/api/status", "dest": "/api/status.py" },
-    { "src": "/api/klines", "dest": "/api/market.py" },
-    { "src": "/api/indicators", "dest": "/api/market.py" },
-    { "src": "/", "dest": "/api/status.py" }
+    { "src": "/(.*)", "dest": "/api/app.py" }
   ]
 }

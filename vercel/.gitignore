@@ -4,4 +4,4 @@ __pycache__/
 .env.*
 .vercel
 *.log
-data/
+/data/
