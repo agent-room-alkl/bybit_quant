@@ -33,10 +33,32 @@ sys.modules["db"] = db_pg
 
 
 def _load_cfg() -> dict:
-    """加载 config.json 基础配置，并用环境变量覆盖密钥/开关（Vercel 上不放明文密钥）。"""
-    cfg_path = os.path.join(_LIB, "config.json")
-    with open(cfg_path, "r", encoding="utf-8") as f:
-        cfg = json.load(f)
+    """加载 config.json 基础配置，并用环境变量覆盖密钥/开关（Vercel 上不放明文密钥）。
+    多候选路径找 config.json；都找不到则用内置默认，绝不因找不到文件而崩。"""
+    cfg = None
+    cand = [
+        os.path.join(_LIB, "config.json"),
+        os.path.join(_HERE, "..", "lib", "config.json"),
+        os.path.join(os.getcwd(), "lib", "config.json"),
+        "/var/task/lib/config.json",
+    ]
+    for p in cand:
+        try:
+            if os.path.isfile(p):
+                with open(p, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                break
+        except Exception:
+            continue
+    if cfg is None:
+        log.warning(f"[CFG] config.json 未找到(候选: {cand})，使用内置默认")
+        cfg = {
+            "symbols": ["SOLUSDT"], "testnet": False, "account_type": "UNIFIED",
+            "recv_window_ms": 5000, "enable_trading": False, "gpt_model": "gpt-4o",
+            "min_usdt_per_buy": 10, "buy_pct_of_usdt": 0.1, "sell_pct_of_base": 0.2,
+            "hours_lookback": 48, "history_days_for_cost": 60,
+            "auto": {}, "fees": {}, "risk": {}, "strategy": {},
+        }
     # 环境变量覆盖（生产密钥只放 Vercel env）
     cfg["api_key"] = os.environ.get("BYBIT_API_KEY", cfg.get("api_key", ""))
     cfg["api_secret"] = os.environ.get("BYBIT_API_SECRET", cfg.get("api_secret", ""))
@@ -108,7 +130,10 @@ class handler(BaseHTTPRequestHandler):
             out = run_tick()
             code = 200
         except Exception as e:
-            out = {"ok": False, "error": str(e)}
+            import traceback
+            tb = traceback.format_exc()
+            print("[TICK ERROR]\n" + tb)  # 打到 stdout, Vercel 日志可见
+            out = {"ok": False, "error": str(e), "traceback": tb.splitlines()[-6:]}
             code = 500
         body = json.dumps(out, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
