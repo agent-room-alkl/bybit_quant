@@ -1027,6 +1027,80 @@ async def manual_trade(request: Request, user: Dict = Depends(get_current_user))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.post("/api/manual_order")
+async def manual_order(request: Request, user: Dict = Depends(get_current_user)):
+    """手动限价单 - 用户直接指定价格和数量，挂 GTC 限价单（买/卖）。"""
+    try:
+        body = await request.json()
+        side = body.get("side", "").upper()  # BUY or SELL
+        try:
+            price = float(body.get("price"))
+            qty = float(body.get("qty"))
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "价格和数量必须为数字"}, status_code=400)
+
+        if side not in ["BUY", "SELL"]:
+            return JSONResponse({"error": "无效的交易方向"}, status_code=400)
+        if price <= 0 or qty <= 0:
+            return JSONResponse({"error": "价格和数量必须大于0"}, status_code=400)
+
+        key = cfg.get("api_key") or os.getenv("BYBIT_API_KEY", "")
+        sec = cfg.get("api_secret") or os.getenv("BYBIT_API_SECRET", "")
+        client = BybitClient(api_key=key, api_secret=sec,
+                             testnet=cfg.get("testnet", False),
+                             account_type=cfg.get("account_type", "UNIFIED"))
+
+        symbols = cfg.get("symbols", [])
+        symbol = symbols[0] if symbols else "SOLUSDT"
+
+        # 交易对过滤器：把价格对齐 tickSize、数量对齐 qtyStep，并校验下限
+        instr_info = client.get_instruments_info(symbol)
+        instr_result = (instr_info.get("result", {}) or {}).get("list", [])
+        if not instr_result:
+            return JSONResponse({"error": "获取交易对信息失败"}, status_code=500)
+        instr = instr_result[0]
+        lot = instr.get("lotSizeFilter", {})
+        pf = instr.get("priceFilter", {})
+        min_qty = float(lot.get("minOrderQty", 0) or 0)
+        qty_step = float(lot.get("qtyStep", 0.0001) or 0.0001)
+        min_notional = float(lot.get("minNotionalValue", 0) or 0)
+        tick_size = float(pf.get("tickSize", 0.0001) or 0.0001)
+
+        import math
+        price = round(round(price / tick_size) * tick_size, 8)
+        qty = round(math.floor(qty / qty_step) * qty_step, 8)
+
+        if qty < min_qty or qty <= 0:
+            return JSONResponse({"error": f"数量({qty})低于最小下单量({min_qty})"}, status_code=400)
+        notional = qty * price
+        if min_notional and notional < min_notional:
+            return JSONResponse({"error": f"金额({notional:.2f})低于最小名义金额({min_notional})"}, status_code=400)
+
+        leverage = float((cfg.get("risk", {}) or {}).get("leverage", 1.0)) \
+            if (cfg.get("risk", {}) or {}).get("leverage_enabled", False) else 1.0
+        isLeverage = 1 if leverage >= 2.0 else 0
+
+        resp = client.place_order(
+            symbol=symbol,
+            side="Buy" if side == "BUY" else "Sell",
+            order_type="Limit",
+            qty=str(qty),
+            price=str(price),
+            tif="GTC",
+            order_link_id=f"manualord_{int(time.time())}",
+            isLeverage=isLeverage,
+        )
+        if resp and resp.get("retCode") == 0:
+            oid = (resp.get("result", {}) or {}).get("orderId", "")
+            log.info(f"手动限价单成功: {side} {qty} @ {price} (≈{notional:.2f}U) 订单ID:{oid}")
+            return JSONResponse({"status": "OK", "message": "限价单已挂出，等待成交",
+                                 "side": side, "qty": qty, "price": price, "notional": notional})
+        return JSONResponse({"error": (resp or {}).get("retMsg", "下单失败")}, status_code=400)
+    except Exception as e:
+        log.error(f"手动限价单异常: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/api/cancel_orders")
 async def cancel_orders(user: Dict = Depends(get_current_user)):
     """撤销当前交易对的所有挂单"""
@@ -2414,6 +2488,22 @@ async def dashboard(request: Request):
                     </div>
                 </div>
                 <div style="color: #5a6a8a; font-size: 0.7rem; margin-top: 8px;">GTC挂单 · 最小量×2 · 等待成交</div>
+
+                <!-- 手动限价单：自定义价格 + 数量 -->
+                <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(90,106,138,0.25);">
+                    <div style="color: #b8c5d6; font-size: 0.82rem; margin-bottom: 8px; text-align: center;">⚡ 手动限价单（自定义价格/数量）</div>
+                    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                        <input id="mo-price" type="number" step="any" placeholder="价格 (USDT)"
+                            style="flex:1; min-width:0; height:34px; background:#0d0f11; border:1px solid #2b3138; border-radius:6px; color:#f3f5f7; padding:0 10px; font-size:0.85rem;" />
+                        <input id="mo-qty" type="number" step="any" placeholder="数量 (SOL)"
+                            style="flex:1; min-width:0; height:34px; background:#0d0f11; border:1px solid #2b3138; border-radius:6px; color:#f3f5f7; padding:0 10px; font-size:0.85rem;" />
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="trade-btn buy" id="btn-mo-buy" onclick="manualOrder('BUY')" style="flex:1;">🟢 限价买入</button>
+                        <button class="trade-btn sell" id="btn-mo-sell" onclick="manualOrder('SELL')" style="flex:1;">🔴 限价卖出</button>
+                    </div>
+                    <div style="color: #5a6a8a; font-size: 0.7rem; margin-top: 8px; text-align: center;">按你填的价格和数量直接挂 GTC 限价单</div>
+                </div>
             </div>
             <div class="card">
                 <div class="card-title" data-i18n="tech_indicators">📈 技术指标 INDICATORS</div>
@@ -2647,6 +2737,41 @@ async def dashboard(request: Request):
         return true;
     }}
     
+    // 手动限价单（自定义价格+数量）
+    async function manualOrder(side) {{
+        const price = parseFloat(document.getElementById('mo-price').value);
+        const qty = parseFloat(document.getElementById('mo-qty').value);
+        if (!(price > 0) || !(qty > 0)) {{
+            showToast('请输入有效的价格和数量', 'error');
+            return;
+        }}
+        const label = side === 'BUY' ? '限价买入' : '限价卖出';
+        if (!confirm(`确认${{label}}？\n价格 $${{price}} × 数量 ${{qty}} ≈ $${{(price*qty).toFixed(2)}}`)) return;
+        const btn = document.getElementById(side === 'BUY' ? 'btn-mo-buy' : 'btn-mo-sell');
+        const orig = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⏳ 挂单中...';
+        try {{
+            const res = await fetch('/api/manual_order', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ side, price, qty }})
+            }});
+            const r = await res.json();
+            if (r.status === 'OK') {{
+                showToast(`✅ ${{label}}已挂出 ${{r.qty}} @ $${{r.price}} (≈$${{r.notional.toFixed(2)}})`, 'success');
+                setTimeout(updateData, 800);
+            }} else {{
+                showToast(`❌ ${{r.error || r.message || '下单失败'}}`, 'error');
+            }}
+        }} catch (e) {{
+            showToast(`❌ 请求失败: ${{e}}`, 'error');
+        }} finally {{
+            btn.disabled = false;
+            btn.textContent = orig;
+        }}
+    }}
+
     // 退出登录
     async function logout() {{
         if (confirm('确定要退出登录吗？')) {{
