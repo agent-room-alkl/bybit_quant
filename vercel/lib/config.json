@@ -1,0 +1,62 @@
+{
+  "api_key": "",
+  "api_secret": "",
+  "testnet": false,
+  "account_type": "UNIFIED",
+  "symbols": [
+    "SOLUSDT"
+  ],
+  "buy_pct_of_usdt": 0.06,
+  "sell_pct_of_base": 0.2,
+  "min_usdt_per_buy": 10,
+  "enable_trading": false,
+  "recv_window_ms": 5000,
+  "hours_lookback": 72,
+  "history_days_for_cost": 60,
+  "auto": {
+    "interval_sec": 60,
+    "comment": "每60秒检查一次，稳健模式"
+  },
+  "fees": {
+    "spot_taker_bps": 10.0,
+    "spot_maker_bps": 10.0
+  },
+  "risk": {
+    "cooldown_min": 10,
+    "max_orders_per_symbol_per_day": 15,
+    "max_daily_loss_pct": 1.5,
+    "cooldown_after_loss_min": 30,
+    "max_single_trade_pct": 5,
+    "max_daily_volume_pct": 80,
+    "leverage_enabled": false,
+    "leverage": 1.0,
+    "comment": "v4.2：恢复v3.4节奏，仅强化下跌熔断保护"
+  },
+  "strategy": {
+    "min_edge_bps": 40,
+    "rsi_oversold": 30,
+    "rsi_overbought": 75,
+    "max_daily_vol": 0.08,
+    "sma_filter": true,
+    "rsi_period": 14,
+    "grid_enabled": true,
+    "grid_spacing_pct": 1.5,
+    "trend_threshold": 30,
+    "stop_loss_pct": 4.0,
+    "trailing_stop_pct": 2.0,
+    "max_position_pct": 65,
+    "min_position_pct": 10,
+    "base_trade_pct": 7,
+    "max_atr_pct": 5.0,
+    "min_confirmation": 4,
+    "scalp_mode": false,
+    "btc_trend_enabled": true,
+    "btc_trend_weight": 0.2,
+    "btc_trend_threshold": 20,
+    "regime_detection_enabled": true,
+    "downtrend_breaker_enabled": true,
+    "comment": "v6.0：网格间距1.5%+确认4信号+RSI30+新闻情绪，年化8.6%"
+  },
+  "gpt_api_key": "",
+  "gpt_model": "gpt-4o"
+}
