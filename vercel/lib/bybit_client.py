@@ -14,11 +14,8 @@ def _setup_logger():
     level = os.getenv("BYBIT_LOG_LEVEL", "INFO").upper()
     log.setLevel(getattr(logging, level, logging.INFO))
     try:
-        # serverless 文件系统只读，日志目录用可写的临时目录(/tmp)
-        import tempfile
-        _logdir = os.path.join(tempfile.gettempdir(), "bybit_logs")
-        os.makedirs(_logdir, exist_ok=True)
-        fh = logging.FileHandler(os.path.join(_logdir, "app.log"), encoding="utf-8")
+        os.makedirs("logs", exist_ok=True)
+        fh = logging.FileHandler("logs/app.log", encoding="utf-8")
         fh.setLevel(getattr(logging, level, logging.INFO))
         fmt = logging.Formatter("%(asctime)s [%(levelname)s] bybit_client: %(message)s")
         fh.setFormatter(fmt)
@@ -208,6 +205,11 @@ class BybitClient:
         body: Dict[str, Any] = {"category": "spot"}
         if symbol: body["symbol"] = symbol
         return self._private_post("/v5/order/cancel-all", body)
+
+    def cancel_order(self, symbol: str, order_id: str) -> Dict[str,Any]:
+        """撤销单个挂单（spot），按 orderId。"""
+        body: Dict[str, Any] = {"category": "spot", "symbol": symbol, "orderId": order_id}
+        return self._private_post("/v5/order/cancel", body)
 
     def get_account_info(self) -> Dict[str,Any]:
         """获取账户信息，包括杠杆交易状态"""

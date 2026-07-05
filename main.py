@@ -1151,6 +1151,33 @@ async def cancel_orders(user: Dict = Depends(get_current_user)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.post("/api/cancel_order")
+async def cancel_order(request: Request, user: Dict = Depends(get_current_user)):
+    """撤销单个挂单（按 orderId）。"""
+    try:
+        body = await request.json()
+        order_id = str(body.get("order_id") or "").strip()
+        if not order_id:
+            return JSONResponse({"error": "缺少 order_id"}, status_code=400)
+        symbols = cfg.get("symbols", [])
+        symbol = body.get("symbol") or (symbols[0] if symbols else "SOLUSDT")
+        key = cfg.get("api_key") or os.getenv("BYBIT_API_KEY", "")
+        sec = cfg.get("api_secret") or os.getenv("BYBIT_API_SECRET", "")
+        client = BybitClient(api_key=key, api_secret=sec,
+                             testnet=cfg.get("testnet", False),
+                             account_type=cfg.get("account_type", "UNIFIED"))
+        resp = client.cancel_order(symbol=symbol, order_id=order_id)
+        if BybitClient.ok(resp):
+            log.info(f"撤销单个挂单成功: {order_id} ({symbol})")
+            return JSONResponse({"status": "OK", "order_id": order_id, "symbol": symbol})
+        msg = (resp or {}).get("retMsg", "unknown error")
+        log.warning(f"撤销单个挂单失败: {order_id} -> {msg}")
+        return JSONResponse({"status": "ERROR", "message": msg}, status_code=400)
+    except Exception as e:
+        log.error(f"撤销单个挂单异常: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/api/update_daily_limit")
 async def update_daily_limit(request: Request, user: Dict = Depends(get_current_user)):
     """更新每日交易额度限制（百分比模式）"""
@@ -2878,6 +2905,32 @@ async def dashboard(request: Request):
         }}
     }}
 
+    // 撤销单个挂单（订单列表里的 ✖撤单 按钮）
+    async function cancelOrder(orderId, btn) {{
+        if (!orderId) {{ showToast('❌ 订单ID缺失', 'error'); return; }}
+        if (!confirm('确认撤销这一笔挂单吗？')) return;
+        const orig = btn ? btn.textContent : '';
+        if (btn) {{ btn.disabled = true; btn.textContent = '⏳'; }}
+        try {{
+            const response = await fetch('/api/cancel_order', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ order_id: orderId }})
+            }});
+            const result = await response.json();
+            if (result.status === 'OK') {{
+                showToast('✅ 已撤销该挂单', 'success');
+                setTimeout(updateData, 800);
+            }} else {{
+                showToast(`❌ 撤单失败: ${{result.message || result.error}}`, 'error');
+                if (btn) {{ btn.disabled = false; btn.textContent = orig; }}
+            }}
+        }} catch (e) {{
+            showToast(`❌ 请求失败: ${{e.message}}`, 'error');
+            if (btn) {{ btn.disabled = false; btn.textContent = orig; }}
+        }}
+    }}
+
     // 手动交易
     async function manualTrade(side) {{
         const btnBuy = document.getElementById('btn-buy');
@@ -3434,7 +3487,9 @@ async def dashboard(request: Request):
                     const cls = t.side === 'Buy' ? 'buy' : 'sell';
                     const time = new Date(t.ts_ms).toLocaleString('zh-CN', {{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}});
                     const price = parseFloat(t.price || 0).toFixed(2);
-                    const statusText = isPending ? '<span style="color:#ffa502">挂单中</span>' : '✅';
+                    const statusText = isPending
+                        ? `<span style="color:#ffa502">挂单中</span> <button onclick="cancelOrder('${{t.order_id}}', this)" title="撤销此挂单" style="margin-left:6px;padding:1px 7px;font-size:0.72rem;line-height:1.4;background:#4a3030;border:1px solid #8b3a3a;color:#e06060;border-radius:4px;cursor:pointer;">✖ 撤单</button>`
+                        : '✅';
                     return `<div class="trade-item ${{cls}}" style="${{isPending ? 'opacity:0.85;border-left:2px solid #ffa502;' : ''}}"><span>${{icon}} ${{t.side}}</span><span>${{t.qty}} @ $${{price}}</span><span style="color:#5a6a8a">${{time}}</span><span>${{statusText}}</span></div>`;
                 }}).join('') || '<div style="color:#5a6a8a;text-align:center;padding:40px;">NO TRADES YET</div>';
             }}
