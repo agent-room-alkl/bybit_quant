@@ -1405,7 +1405,8 @@ async def login_page():
             display: flex;
             align-items: center;
             justify-content: center;
-            overflow: hidden;
+            overflow-x: hidden;
+            padding: 16px;
         }
         .bg-animation {
             position: fixed;
@@ -1579,6 +1580,14 @@ async def login_page():
             background: rgba(15, 23, 42, 0.82);
             border-color: rgba(148, 163, 184, 0.35);
             color: #e2e8f0;
+        }
+        @media (max-width: 600px) {
+            .login-container {
+                padding: 28px 20px;
+            }
+            .login-header h1 {
+                font-size: 1.6rem;
+            }
         }
     </style>
 </head>
@@ -1952,8 +1961,8 @@ async def dashboard(request: Request):
         @keyframes pulse {{ 0%, 100% {{ opacity: 1; transform: scale(1); }} 50% {{ opacity: 0.5; transform: scale(0.8); }} }}
         
         /* 24小时统计 */
-        .stats-row {{ display: flex; gap: 30px; justify-content: center; margin-top: 10px; margin-bottom: 10px; }}
-        .stat-item {{ display: flex; align-items: center; gap: 8px; }}
+        .stats-row {{ display: flex; flex-wrap: wrap; gap: 15px 30px; justify-content: center; margin-top: 10px; margin-bottom: 10px; }}
+        .stat-item {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
         .stat-label {{ color: #5a6a8a; font-size: 0.8rem; }}
         .stat-value {{ font-family: 'Orbitron', monospace; font-weight: 600; }}
 
@@ -2229,11 +2238,16 @@ async def dashboard(request: Request):
             color: var(--muted) !important;
         }}
         @media (max-width: 900px) {{
-            .grid-5,
             .grid-3,
-            .grid-2,
-            .indicators {{
+            .grid-2 {{
                 grid-template-columns: 1fr !important;
+            }}
+            .grid-5 {{
+                grid-template-columns: repeat(2, 1fr) !important;
+                gap: 12px;
+            }}
+            .indicators {{
+                grid-template-columns: repeat(2, 1fr) !important;
             }}
             .header > div:first-child {{
                 position: static !important;
@@ -2243,12 +2257,119 @@ async def dashboard(request: Request):
             }}
             h1 {{
                 font-size: 2rem;
+                letter-spacing: 1px;
             }}
             .status-bar {{
                 position: static;
                 margin-top: 20px;
                 gap: 10px;
                 flex-direction: column;
+            }}
+            .strategy-modal-box {{
+                margin: 16px 10px !important;
+                padding: 20px 16px !important;
+            }}
+            .strategy-grid {{
+                grid-template-columns: 1fr !important;
+                gap: 12px !important;
+            }}
+        }}
+        /* 手机端优化 */
+        @media (max-width: 600px) {{
+            .container {{
+                padding: 12px;
+            }}
+            /* 防止 iOS 聚焦输入框时自动缩放页面 */
+            input,
+            select {{
+                font-size: 16px !important;
+            }}
+            h1 {{
+                font-size: 1.5rem;
+                letter-spacing: 0;
+            }}
+            .subtitle {{
+                font-size: 0.8rem;
+                letter-spacing: 1px;
+            }}
+            .card {{
+                padding: 16px;
+                border-radius: 12px;
+            }}
+            .card:hover {{
+                transform: none;
+            }}
+            .card-value {{
+                font-size: 1.35rem;
+            }}
+            .card-title {{
+                margin-bottom: 8px;
+            }}
+            .grid-5,
+            .grid-2,
+            .grid-3 {{
+                gap: 10px;
+                margin-bottom: 15px;
+            }}
+            .stats-row {{
+                gap: 10px 18px;
+                padding: 10px 12px;
+                border-radius: 10px;
+            }}
+            .stat-label {{
+                font-size: 0.75rem;
+            }}
+            .stat-value {{
+                font-size: 0.9rem;
+            }}
+            .signal-card {{
+                padding: 25px 15px;
+            }}
+            .signal-icon {{
+                font-size: 3rem;
+                margin-bottom: 10px;
+            }}
+            .signal-text {{
+                font-size: 1.8rem;
+                letter-spacing: 3px;
+            }}
+            .indicators {{
+                gap: 8px;
+            }}
+            .indicator {{
+                padding: 12px 8px;
+            }}
+            .indicator-value {{
+                font-size: 1.1rem;
+            }}
+            .trade-buttons {{
+                gap: 10px;
+                margin-top: 18px;
+            }}
+            .trade-btn {{
+                padding: 12px 10px;
+                font-size: 0.85rem;
+                letter-spacing: 1px;
+            }}
+            .chart-container {{
+                height: 200px;
+            }}
+            .trade-item {{
+                flex-wrap: wrap;
+                gap: 4px 10px;
+                padding: 10px 12px;
+                font-size: 0.85rem;
+            }}
+            .toast {{
+                left: 12px;
+                right: 12px;
+                top: 12px;
+                max-width: none;
+                text-align: center;
+            }}
+            #news-card > div:last-child {{
+                flex-direction: column;
+                gap: 10px !important;
             }}
         }}
     </style>
@@ -2272,13 +2393,13 @@ async def dashboard(request: Request):
         
         <!-- 策略说明弹出框 -->
         <div id="strategyModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; overflow-y: auto;">
-            <div style="max-width: 1200px; margin: 50px auto; background: linear-gradient(145deg, rgba(30, 42, 74, 0.95), rgba(22, 32, 53, 0.98)); border-radius: 20px; padding: 30px; border: 1px solid rgba(0, 212, 255, 0.3); position: relative;">
+            <div class="strategy-modal-box" style="max-width: 1200px; margin: 50px auto; background: linear-gradient(145deg, rgba(30, 42, 74, 0.95), rgba(22, 32, 53, 0.98)); border-radius: 20px; padding: 30px; border: 1px solid rgba(0, 212, 255, 0.3); position: relative;">
                 <button onclick="closeStrategyModal()" style="position: absolute; top: 15px; right: 15px; background: rgba(231,76,60,0.3); border: 1px solid rgba(231,76,60,0.5); border-radius: 50%; width: 35px; height: 35px; color: #e74c3c; font-size: 1.2rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(231,76,60,0.5)';" onmouseout="this.style.background='rgba(231,76,60,0.3)';">×</button>
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
                     <span style="font-size: 1.5rem;">📋</span>
                     <h2 style="font-family: 'Orbitron', monospace; font-size: 1.5rem; color: #00d4ff; margin: 0;">交易策略说明</h2>
                 </div>
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                <div class="strategy-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
                     <!-- 核心策略 -->
                     <div style="background: rgba(0, 0, 0, 0.3); padding: 15px; border-radius: 12px; border-left: 3px solid #00d4ff;">
                         <div style="color: #00d4ff; font-weight: 700; margin-bottom: 8px; font-size: 0.9rem;">🎯 核心策略</div>
