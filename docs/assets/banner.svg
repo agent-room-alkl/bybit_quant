@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-label="bybit_quant">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B45309"/><stop offset="1" stop-color="#DC2626"/>
+    </linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.4" fill="#ffffff" fill-opacity="0.12"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="300" rx="18" fill="url(#g)"/>
+  <rect width="1200" height="300" rx="18" fill="url(#dots)"/>
+  <circle cx="1080" cy="60" r="150" fill="#ffffff" fill-opacity="0.06"/>
+  <circle cx="1140" cy="260" r="90" fill="#ffffff" fill-opacity="0.07"/>
+  <text x="60" y="120" font-size="58" font-weight="700" fill="#ffffff" font-family="Segoe UI, Helvetica, Arial, sans-serif">bybit_quant</text>
+  <text x="60" y="172" font-size="24" fill="#ffffff" fill-opacity="0.92" font-family="Segoe UI, Helvetica, Arial, sans-serif">A risk-first SOL/USDT spot bot: grid + trend + multi-indicator confirmation.</text>
+  <rect x="60" y="232" rx="15" ry="15" width="65" height="30" fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-opacity="0.35"/><text x="93" y="252" text-anchor="middle" font-size="14" fill="#ffffff" font-family="Segoe UI, Helvetica, Arial, sans-serif">Python</text><rect x="135.2" y="232" rx="15" ry="15" width="82" height="30" fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-opacity="0.35"/><text x="176" y="252" text-anchor="middle" font-size="14" fill="#ffffff" font-family="Segoe UI, Helvetica, Arial, sans-serif">Bybit v5</text><rect x="226.79999999999998" y="232" rx="15" ry="15" width="98" height="30" fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-opacity="0.35"/><text x="276" y="252" text-anchor="middle" font-size="14" fill="#ffffff" font-family="Segoe UI, Helvetica, Arial, sans-serif">Backtester</text><rect x="334.79999999999995" y="232" rx="15" ry="15" width="147" height="30" fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-opacity="0.35"/><text x="408" y="252" text-anchor="middle" font-size="14" fill="#ffffff" font-family="Segoe UI, Helvetica, Arial, sans-serif">Circuit breakers</text><rect x="491.99999999999994" y="232" rx="15" ry="15" width="106" height="30" fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-opacity="0.35"/><text x="545" y="252" text-anchor="middle" font-size="14" fill="#ffffff" font-family="Segoe UI, Helvetica, Arial, sans-serif">Vercel cron</text>
+</svg>
