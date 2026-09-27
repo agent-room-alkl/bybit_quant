@@ -108,7 +108,7 @@ class BybitClient:
                     data = {"retCode": -10001, "retMsg": f"Non-JSON response (status {resp.status_code})", "text": text}
 
                 if resp.status_code>=500 or data.get("retCode") in {10006,10007,10016}:
-                    if attempt<=self.max_retries:
+                    if method.upper()=="GET" and attempt<=self.max_retries:
                         wait_time = min(1.0 * attempt, 3.0)
                         log.warning(f"服务器错误 {resp.status_code} 或业务错误 {data.get('retCode')} (尝试 {attempt}/{self.max_retries + 1}): {url}, 等待 {wait_time:.1f} 秒后重试...")
                         time.sleep(wait_time)
@@ -117,7 +117,7 @@ class BybitClient:
                 return data
             except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.Timeout) as e:
                 log.warning(f"连接超时 (尝试 {attempt}/{self.max_retries + 1}): {method} {url} - {type(e).__name__}: {e}")
-                if attempt <= self.max_retries:
+                if method.upper()=="GET" and attempt <= self.max_retries:
                     wait_time = min(2.0 * attempt, 10.0)  # 最多等待10秒
                     log.info(f"等待 {wait_time:.1f} 秒后重试...")
                     time.sleep(wait_time)
@@ -126,7 +126,7 @@ class BybitClient:
                 return {"retCode": -10000, "retMsg": f"连接超时: {type(e).__name__}: {str(e)}"}
             except requests.RequestException as e:
                 log.warning(f"HTTP错误 (尝试 {attempt}/{self.max_retries + 1}): {method} {url} - {type(e).__name__}: {e}")
-                if attempt <= self.max_retries:
+                if method.upper()=="GET" and attempt <= self.max_retries:
                     wait_time = min(1.5 * attempt, 5.0)  # 最多等待5秒
                     time.sleep(wait_time)
                     continue
@@ -199,6 +199,21 @@ class BybitClient:
         params = {"category": "spot", "limit": limit}
         if symbol: params["symbol"] = symbol
         return self._private_get("/v5/order/realtime", params)
+
+    def get_order_status(self, symbol: str, order_link_id: str) -> Dict[str, Any]:
+        params = {"category": "spot", "symbol": symbol, "orderLinkId": order_link_id}
+        current = self._private_get("/v5/order/realtime", params)
+        if current.get("retCode") != 0 or current.get("result", {}).get("list"):
+            return current
+        return self._private_get("/v5/order/history", params)
+
+    def get_transaction_log(self, start_ms: int, end_ms: int, cursor=None, currency=None):
+        params = {"accountType": self.account_type, "startTime": start_ms, "endTime": end_ms, "limit": 50}
+        if cursor:
+            params["cursor"] = cursor
+        if currency:
+            params['currency'] = currency
+        return self._private_get("/v5/account/transaction-log", params)
 
     def cancel_all_orders(self, symbol: Optional[str]=None) -> Dict[str,Any]:
         """撤销所有挂单（spot）"""

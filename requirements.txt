@@ -7,3 +7,5 @@ fastapi
 uvicorn
 PyJWT
 python-multipart
+
+tzdata>=2025.1

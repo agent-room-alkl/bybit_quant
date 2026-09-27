@@ -1,6 +1,4 @@
 {
-  "api_key": "",
-  "api_secret": "",
   "testnet": false,
   "account_type": "UNIFIED",
   "symbols": [
@@ -30,7 +28,7 @@
     "max_daily_volume_pct": 80,
     "leverage_enabled": false,
     "leverage": 1.0,
-    "comment": "v7：成交对账、账户净值熔断和风险预算；趋势补仓保留为候选",
+    "comment": "v7 ABCD 全部优化回放配置：趋势补仓开启，实盘交易关闭",
     "risk_per_trade_pct": 0.25,
     "max_intraday_drawdown_pct": 5,
     "halt_hours": 24,
@@ -64,7 +62,7 @@
     "btc_trend_threshold": 20,
     "regime_detection_enabled": true,
     "downtrend_breaker_enabled": true,
-    "trend_rebuild_enabled": false,
+    "trend_rebuild_enabled": true,
     "bull_target_position_pct": 40,
     "sideways_max_position_pct": 35,
     "bear_max_position_pct": 15,
@@ -77,6 +75,5 @@
     "trend_confirmation_hours": 2,
     "trend_entry_cooldown_min": 60
   },
-  "gpt_api_key": "",
   "gpt_model": "gpt-4o"
 }

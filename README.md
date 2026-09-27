@@ -22,6 +22,10 @@ Runs as a local process with a live web dashboard, or serverless on Vercel Cron 
 
 ---
 
+## v7 implementation (2026-09-27)
+
+See [the implementation and replay report](docs/OPTIMIZATION_V7_CN.md) for the new fill ledger, persistent execution state, account risk budget, trend candidate and rollout limits. Trading stays disabled in the shipped configurations. Historical research results are stored locally under `data/`.
+
 ## Why another bot
 
 Most open-source grid bots do one thing well — buy the dip — and one thing catastrophically: **keep buying the dip while the market falls 40%.** This project started as a grid bot on SOL/USDT and was rebuilt around one lesson from its own losses: *capital preservation first, profit second.* The full post-mortem that drove v5 is in [`STRATEGY_IMPROVEMENTS.md`](STRATEGY_IMPROVEMENTS.md).
@@ -152,7 +156,11 @@ docker compose up -d --build
 python backtest.py
 ```
 
-The backtester feeds historical klines through the same `SmartStrategy` used live, with a simulated clock (`set_simulated_time`), so cooldowns, circuit breakers and regime switching behave exactly as they would in production. `backtest_trend.py` runs the trend-only strategy for comparison, and `analyze_signals.py` summarises a signal log.
+The v7 entry point is `python replay.py --config configs/trend_candidate.json --sweep`. It uses closed candles and the shared live decision and sizing functions, then models execution at the following candle's open within the IOC limit. It includes fees, explicit slippage and partial-fill scenarios, training-only candidate selection, and chronological validation slices. It does **not** reproduce historical order-book liquidity or live minute-by-minute execution. `backtest_trend.py` remains a legacy research utility.
+
+Use `python shadow.py` for a one-shot live decision with an enforced GET-only exchange client and isolated local storage. Credentials may be supplied in `.env` as `BYBIT_API_KEY` / `BYBIT_API_SECRET`; the existing two-line key/secret format is also accepted. The command never prints credentials.
+
+Package shared modules for Vercel with `python tools/sync_runtime.py` after changing the runtime.
 
 ## Deploy on Vercel
 

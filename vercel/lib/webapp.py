@@ -228,8 +228,10 @@ def trading_loop():
                     # 如果有交易执行，额外记录
                     if snap.get("placed"):
                         status = snap["placed"].get("status", "")
-                        if status == "OK":
-                            log.info(f"[{sym}] ✅ 交易执行成功")
+                        if status in ("SUBMITTED", "PENDING", "PLANNED"):
+                            log.info(f"[{sym}] 订单已提交，等待成交对账: {status}")
+                        elif status == "Filled":
+                            log.info(f"[{sym}] 成交已确认")
                         elif status == "DRYRUN":
                             log.info(f"[{sym}] 🔄 模拟交易（未实际下单）")
                         else:
@@ -489,9 +491,9 @@ async def get_portfolio():
         
         # 获取成本价（FIFO）
         try:
-            from cost import get_cost_price
+            from cost import get_reconciled_cost
             import math
-            cost_price = get_cost_price(client, symbol, base_bal, history_days=60)
+            cost_price = get_reconciled_cost(symbol, base_bal)
             if cost_price is None or (isinstance(cost_price, float) and (math.isnan(cost_price) or cost_price <= 0)):
                 cost_price = 0.0
         except Exception as e:
@@ -547,6 +549,7 @@ async def get_portfolio():
             "low_24h": clean_float(low_24h),
             "volume_24h": clean_float(volume_24h),
             "cost_price": clean_float(cost_price),
+            "cost_reconciled": cost_price > 0,
             "base_balance": clean_float(base_bal),
             "usdt_balance": clean_float(usdt_bal),
             "total_value": clean_float(total_value),

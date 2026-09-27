@@ -158,6 +158,18 @@ def recent_trades(limit: int = 50) -> List[Dict[str, Any]]:
         return []
 
 
+def update_trade_status(order_id, order_link_id, status, filled_qty, avg_price):
+    """Project reconciled exchange status into the legacy dashboard table."""
+    from psycopg2.extras import Json
+    with _get_conn().cursor() as c:
+        c.execute(
+            f"UPDATE {SCHEMA}.trades SET status=%s, order_id=CASE WHEN %s<>'' THEN %s ELSE order_id END, "
+            "raw_resp=COALESCE(raw_resp,'{}'::jsonb) || %s::jsonb "
+            "WHERE (%s<>'' AND order_id=%s) OR raw_resp->>'orderLinkId'=%s",
+            (status,order_id,order_id,Json({'execution':{'filled_qty':filled_qty,'avg_price':avg_price}}),
+             order_id,order_id,order_link_id))
+
+
 # ── signals ─────────────────────────────────────────
 def log_signal(ts_ms: int, symbol: str, last_price: float, cost_price: float,
                rsi14: float, sma12: float, sma24: float, sma72: float,

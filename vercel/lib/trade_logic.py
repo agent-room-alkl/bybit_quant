@@ -42,9 +42,9 @@ def parse_instr_filters(info_json: Dict[str, Any]) -> InstrFilters:
     price_filter = row.get("priceFilter", {}) or {}
     lot_filter = row.get("lotSizeFilter", {}) or {}
     tick = _to_float(price_filter.get("tickSize"), 0.00000001)
-    qty_step = _to_float(lot_filter.get("qtyStep"), 0.00000001)
+    qty_step = _to_float(lot_filter.get("qtyStep") or lot_filter.get("basePrecision"), 0.00000001)
     min_qty = _to_float(lot_filter.get("minOrderQty"), 0.0)
-    min_notional = _to_float(lot_filter.get("minNotionalValue"), 0.0)
+    min_notional = _to_float(lot_filter.get("minNotionalValue") or lot_filter.get("minOrderAmt"), 0.0)
     return InstrFilters(tick, qty_step, min_qty, min_notional)
 
 
@@ -337,11 +337,13 @@ def generate_order(
     step = instr.qty_step if instr.qty_step > 0 else 0.0001
     step_str = f"{step:.10f}".rstrip("0")
     decimals = len(step_str.split(".")[-1]) if "." in step_str else 0
-    decimals = min(max(decimals, 2), 4)  # 至少2位，最多4位（Bybit SOLUSDT限制）
+    decimals = max(decimals, 0)
     qty_str = f"{qty:.{decimals}f}"
     
     # 格式化价格：通常2位小数足够
-    price_str = f"{price:.2f}".rstrip("0").rstrip(".")
+    from decimal import Decimal
+    price_decimals = max(0, -Decimal(str(tick)).normalize().as_tuple().exponent)
+    price_str = f"{price:.{price_decimals}f}"
     if not price_str or price_str == '':
         price_str = f"{price:.2f}"
     
