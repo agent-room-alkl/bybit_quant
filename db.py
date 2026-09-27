@@ -120,6 +120,18 @@ def recent_trades(limit: int = 50) -> List[Dict[str, Any]]:
         return list(_trades[:limit])
 
 
+def update_trade_status(order_id, order_link_id, status, filled_qty, avg_price):
+    """UI projection only; durable fills and accounting live in runtime_store."""
+    with _lock:
+        for row in _trades:
+            raw = row.get('raw_resp') or {}
+            if (order_id and row.get('order_id') == order_id) or raw.get('orderLinkId') == order_link_id:
+                row['status'] = status
+                row['order_id'] = order_id or row.get('order_id','')
+                row['raw_resp'] = {**raw, 'execution': {'filled_qty':filled_qty,'avg_price':avg_price}}
+        _save_ring(TRADES_FILE,_trades)
+
+
 # ── signals 环形缓冲 ────────────────────────────────
 def log_signal(ts_ms: int, symbol: str, last_price: float, cost_price: float,
                rsi14: float, sma12: float, sma24: float, sma72: float,

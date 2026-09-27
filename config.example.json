@@ -9,10 +9,10 @@
   "buy_pct_of_usdt": 0.25,
   "sell_pct_of_base": 0.15,
   "min_usdt_per_buy": 5,
-  "enable_trading": true,
+  "enable_trading": false,
   "recv_window_ms": 5000,
   "hours_lookback": 72,
-  "history_days_for_cost": 60,
+  "history_days_for_cost": 365,
   "auto": {
     "interval_sec": 120
   },
@@ -25,7 +25,16 @@
     "max_orders_per_symbol_per_day": 4,
     "max_daily_loss_pct": 3.0,
     "cooldown_after_loss_min": 60,
-    "max_single_trade_pct": 20
+    "max_single_trade_pct": 5,
+    "risk_per_trade_pct": 0.25,
+    "max_intraday_drawdown_pct": 5,
+    "halt_hours": 24,
+    "halt_target_position_pct": 0,
+    "reverse_cooldown_min": 15,
+    "slippage_bps": 5,
+    "timezone": "Pacific/Auckland",
+    "max_account_position_pct": 65,
+    "max_risk_exits_per_day": 4
   },
   "strategy": {
     "min_edge_bps": 25,
@@ -45,11 +54,22 @@
     "max_atr_pct": 4.0,
     "min_confirmation": 2,
     "macro_analysis_enabled": false,
-    "macro_min_confidence": 0.5
+    "macro_min_confidence": 0.5,
+    "trend_rebuild_enabled": false,
+    "bull_target_position_pct": 40,
+    "sideways_max_position_pct": 35,
+    "bear_max_position_pct": 15,
+    "trend_entry_step_pct": 5,
+    "trend_exit_target_pct": 15,
+    "stop_target_position_pct": 0,
+    "grid_sell_reference_hours": 4,
+    "btc_crash_pct": 3,
+    "news_enabled": false,
+    "trend_confirmation_hours": 2,
+    "trend_entry_cooldown_min": 60
   },
   "gpt_api_key": "YOUR_OPENAI_API_KEY",
   "gpt_model": "gpt-4o",
   "claude_api_key": "YOUR_ANTHROPIC_API_KEY",
   "claude_model": "claude-sonnet-4-6"
 }
-

@@ -79,6 +79,7 @@ class MarketState:
     avg_sell_price: float = 0.0
     original_cost_price: float = 0.0
     usdt_balance: float = 0.0
+    untradeable_dust: bool = False
     base_balance: float = 0.0
     usdt_pct: float = 0.0
     base_pct: float = 0.0
@@ -106,6 +107,8 @@ class MarketState:
     news_confidence: float = 0.0      # 情绪判断的信心 (0~1)
     news_risk_level: str = "medium"   # 风险级别 (low/medium/high)
     news_action: str = "hold"         # 建议动作
+    closed_bar_ms: int = 0
+    btc_change_24h_pct: float = 0.0
 
 
 @dataclass
@@ -117,6 +120,8 @@ class TradeSignal:
     position_pct: float
     price_target: Optional[float] = None
     stop_loss: Optional[float] = None
+    intent: str = "grid"
+    stop_distance_pct: Optional[float] = None
 
 
 @dataclass
@@ -172,6 +177,10 @@ class SmartStrategy:
     BTC_CRASH_GATE_PCT = 3.0        # BTC日跌>3%禁止买入
 
     def __init__(self, config: Dict[str, Any]):
+        self.config = dict(config)
+        self._last_regime_bar_ms = 0
+        self._trend_last_hour_ms = -1
+        self._trend_confirmation_count = 0
         self.rsi_oversold = float(config.get("rsi_oversold", 25))
         self.rsi_overbought = float(config.get("rsi_overbought", 75))
         self.min_edge_bps = float(config.get("min_edge_bps", 40))
@@ -226,6 +235,63 @@ class SmartStrategy:
         self._last_seen_buy_ts_ms = 0          # 上次看到的 s.last_buy_time,用于检测新买入
 
     # ── 辅助方法 ──────────────────────────────────────────────
+
+    STATE_FIELDS = ('_last_regime', '_pending_regime', '_pending_count',
+                    '_last_regime_bar_ms', '_daily_stop_loss_count',
+                    '_last_stop_loss_date', '_last_stop_loss_price',
+                    '_last_stop_loss_ts_ms', '_recent_max_buy_price',
+                    '_recent_max_buy_ts_ms', '_last_seen_buy_ts_ms',
+                    '_trend_last_hour_ms', '_trend_confirmation_count')
+
+    def export_state(self):
+        return {k: getattr(self, k) for k in self.STATE_FIELDS}
+
+    def restore_state(self, state):
+        for k in self.STATE_FIELDS:
+            if k in state:
+                setattr(self, k, state[k])
+
+    def on_risk_fill(self, price, ts_ms):
+        from execution_policy import trading_day
+        today = trading_day(ts_ms, self.config.get('timezone','Pacific/Auckland'))
+        if today != self._last_stop_loss_date:
+            self._daily_stop_loss_count = 0
+            self._last_stop_loss_date = today
+        self._daily_stop_loss_count += 1
+        self._last_stop_loss_price = price
+        self._last_stop_loss_ts_ms = ts_ms
+
+    def _trend_rebuild(self, s, pos):
+        if not self.config.get('trend_rebuild_enabled', False):
+            return None
+        stop = self._raw_stop_loss_pct
+        if s.regime == REGIME_BEAR:
+            self._trend_confirmation_count = 0
+            target = float(self.config.get('bear_max_position_pct',15))
+            if pos > target:
+                return TradeSignal('SELL',100,'熊市风险暴露超限，减至目标仓位',pos-target,intent='risk_exit')
+            return None
+        if s.h1_trend_score < -20 and s.h1_sma7 < s.h1_sma24:
+            self._trend_confirmation_count = 0
+            target = float(self.config.get('trend_exit_target_pct',15))
+            if pos > target:
+                return TradeSignal('SELL',90,'小时趋势失效，降低风险仓位',pos-target,intent='risk_exit')
+        target = min(float(self.config.get('bull_target_position_pct',40)),self._base_max_position_pct)
+        strong = (s.regime == REGIME_BULL and s.regime_confidence >= 0.6
+                  and s.h1_sma7 > s.h1_sma24 > s.h1_sma72 > 0 and s.h1_trend_score >= 20
+                  and s.long_term_trend_pct > 0
+                  and s.trend_score > 15 and s.adx >= 20 and 30 < s.rsi14 < 75)
+        hour_ms=((s.closed_bar_ms+900000)//3600000)*3600000-3600000
+        if hour_ms != self._trend_last_hour_ms:
+            self._trend_confirmation_count = ((self._trend_confirmation_count+1 if hour_ms-self._trend_last_hour_ms == 3600000 else 1) if strong else 0)
+            self._trend_last_hour_ms=hour_ms
+        confirmed=self._trend_confirmation_count>=int(self.config.get('trend_confirmation_hours',2))
+        max_extension = max(0.5,min(4.0,2*s.atr_pct))
+        if strong and confirmed and pos < target and s.last_price <= s.h1_sma7*(1+max_extension/100):
+            return TradeSignal('BUY',s.regime_confidence*100,'牛市趋势重建仓位',
+                               min(float(self.config.get('trend_entry_step_pct',5)),target-pos),
+                               intent='trend_entry',stop_distance_pct=stop)
+        return None
 
     def _ref_cost(self, s: MarketState) -> float:
         # v3.5: 阈值与_try_special_buy对齐（scalp=50%,非scalp=60%）
@@ -460,8 +526,8 @@ class SmartStrategy:
     # v5.0 新增：BTC崩盘门控
     def _check_btc_crash_gate(self, s: MarketState) -> Optional[str]:
         """v5.0: BTC日跌超过阈值时禁止网格买入"""
-        if s.btc_long_term_trend_pct < -self.BTC_CRASH_GATE_PCT:
-            return (f"v5.0 BTC崩盘门控：BTC日跌{abs(s.btc_long_term_trend_pct):.1f}%"
+        if s.btc_change_24h_pct < -self.BTC_CRASH_GATE_PCT:
+            return (f"BTC崩盘门控：BTC 24小时跌{abs(s.btc_change_24h_pct):.1f}%"
                     f"(>{self.BTC_CRASH_GATE_PCT}%)，禁止网格买入，等待企稳")
         return None
 
@@ -796,7 +862,11 @@ class SmartStrategy:
         # 0. 市场状态识别 & 自适应参数
         if self.regime_detection_enabled:
             raw_regime, raw_conf = self._detect_regime(s)
-            regime, conf = self._apply_regime_hysteresis(raw_regime, raw_conf)
+            if not s.closed_bar_ms or s.closed_bar_ms != self._last_regime_bar_ms:
+                regime, conf = self._apply_regime_hysteresis(raw_regime, raw_conf)
+                self._last_regime_bar_ms = s.closed_bar_ms
+            else:
+                regime, conf = self._last_regime, raw_conf if raw_regime == self._last_regime else raw_conf * 0.7
             s.regime = regime
             s.regime_confidence = conf
             rp = self._get_regime_params(regime, conf, s)
@@ -831,17 +901,10 @@ class SmartStrategy:
         # 3. 止损检查
         stop = self._check_stop_loss(s, pos, last_buy_price)
         if stop:
-            # v4.3: 更新死亡螺旋追踪器
-            self._last_stop_loss_price = s.last_price
-            self._last_stop_loss_ts_ms = now_ms()
-            import datetime as _dt
-            today = _dt.datetime.fromtimestamp(now_ms() / 1000).strftime("%Y-%m-%d")
-            if today != self._last_stop_loss_date:
-                self._daily_stop_loss_count = 0
-                self._last_stop_loss_date = today
-            self._daily_stop_loss_count += 1
-            log.debug(f"v4.3止损追踪: 今日第{self._daily_stop_loss_count}次止损 @ ${s.last_price:.2f}")
             return stop
+        trend_signal = self._trend_rebuild(s, pos)
+        if trend_signal:
+            return trend_signal
 
         # 3.5 v4.3增强：三重止损保护，防止死亡螺旋
         if buy_score > sell_score:
@@ -869,7 +932,8 @@ class SmartStrategy:
 
             # 保护C：每日止损次数限制
             import datetime as _dt
-            today = _dt.datetime.fromtimestamp(now_ms() / 1000).strftime("%Y-%m-%d")
+            from execution_policy import trading_day
+            today = trading_day(now_ms(), self.config.get("timezone", "Pacific/Auckland"))
             if today != self._last_stop_loss_date:
                 self._daily_stop_loss_count = 0
                 self._last_stop_loss_date = today
@@ -1250,70 +1314,18 @@ class SmartStrategy:
     def _check_stop_loss(self, s: MarketState, pos: float,
                          last_buy_price: float) -> Optional[TradeSignal]:
         actual = self._actual_cost(s)
-        if actual <= 0 or s.last_price <= 0:
+        if s.untradeable_dust or actual <= 0 or not math.isfinite(actual) or pos <= 0:
             return None
-        loss = (actual - s.last_price) / actual * 100
-
-        # v5.2d: 止损冷却 — 上次止损后60分钟内不再触发
-        if s.last_stop_loss_time > 0:
-            since_last_stop = self._time_since_min(s.last_stop_loss_time)
-            if since_last_stop < self.STOP_LOSS_COOLDOWN_MIN:
-                return None
-
-        # 最小持仓时间保护：刚买入30分钟内，止损阈值翻倍
-        min_hold_min = 30.0
-        loss_multiplier = 1.0
-        if s.last_buy_time > 0:
-            hold_min = self._time_since_min(s.last_buy_time)
-            if hold_min < min_hold_min:
-                loss_multiplier = 2.0
-
-        # v5.2d: 仓位太小不值得止损（防止微量递减循环）
-        if pos < 5 or (s.base_balance * s.last_price) < 10:
-            return None
-
-        # 情况1：重仓 + 大亏损 + 强下跌 → 果断大幅减仓
-        if pos > 50 and loss >= self.stop_loss_pct * loss_multiplier and s.trend_score < -40:
-            # v5.2d: 一次性减到安全仓位，不要零敲碎打
-            target_pos = max(20, self.min_position_pct)
-            pct_sell = pos - target_pos
-            return TradeSignal("SELL", 100,
-                f"触发止损: 仓位{pos:.0f}%亏损{loss:.1f}%，减仓到{target_pos:.0f}%",
-                pct_sell, stop_loss=actual * (1 - self.stop_loss_pct / 100))
-
-        # 情况2：回调买入后成本上升
-        if last_buy_price > 0:
-            est_cost = s.cost_price * 0.6 + last_buy_price * 0.4
-            if s.last_price < est_cost:
-                loss2 = (est_cost - s.last_price) / est_cost * 100
-                if loss2 >= self.stop_loss_pct * 2 * loss_multiplier and s.trend_score < -40:
-                    target_pos = max(15, pos * 0.5)
-                    pct_sell = pos - target_pos
-                    if pct_sell > 3:
-                        return TradeSignal("SELL", 100,
-                            f"触发止损: 回调买入亏损{loss2:.1f}%，减仓{pct_sell:.0f}%",
-                            pct_sell, stop_loss=actual * (1 - self.stop_loss_pct / 100))
-
-        # 情况3：持续下跌 → 减仓到30%以下
-        if loss >= self.stop_loss_pct * 1.5 * loss_multiplier and s.trend_score < -30 and pos > 30:
-            target_pos = max(15, pos * 0.5)
-            pct_sell = pos - target_pos
-            if pct_sell > 3:
-                return TradeSignal("SELL", 100,
-                    f"触发止损: 持续下跌亏损{loss:.1f}%，减仓到{target_pos:.0f}%",
-                    pct_sell, stop_loss=actual * (1 - self.stop_loss_pct / 100))
-
-        # 情况4：快速下跌
-        if s.recent_high > 0 and s.last_price > 0:
-            drop = (s.recent_high - s.last_price) / s.recent_high * 100
-            if drop >= 5.0 and loss >= self.stop_loss_pct * loss_multiplier and pos > 25:
-                target_pos = max(15, pos * 0.6)
-                pct_sell = pos - target_pos
-                if pct_sell > 3:
-                    return TradeSignal("SELL", 100,
-                        f"触发止损: 高点下跌{drop:.1f}%亏损{loss:.1f}%，减仓{pct_sell:.0f}%",
-                        pct_sell, stop_loss=actual * (1 - self.stop_loss_pct / 100))
-
+        # Risk exits are never delayed by minimum hold time or re-entry cooldown.
+        # A new tranche must not inherit a much wider stop from old cheap inventory.
+        basis = max(actual,last_buy_price)
+        loss = (basis-s.last_price)/basis*100
+        if loss >= self._raw_stop_loss_pct:
+            target = float(self.config.get('stop_target_position_pct',0))
+            if pos > target:
+                return TradeSignal('SELL',100,'触发止损: 硬风险阈值，降低至风险目标仓位',
+                                   pos-target,stop_loss=basis*(1-self._raw_stop_loss_pct/100),
+                                   intent='risk_exit')
         return None
 
     # ── v5.2 Smart DCA（定投进攻）──────────────────────────────
@@ -2204,6 +2216,8 @@ def create_smart_strategy(cfg: Dict[str, Any]) -> SmartStrategy:
     strategy_cfg = cfg.get("strategy", {})
     fees_cfg = cfg.get("fees", {})
     config = {
+        **strategy_cfg,
+        "timezone": cfg.get("risk", {}).get("timezone", "Pacific/Auckland"),
         "rsi_oversold": strategy_cfg.get("rsi_oversold", 25),
         "rsi_overbought": strategy_cfg.get("rsi_overbought", 75),
         "min_edge_bps": strategy_cfg.get("min_edge_bps", 40),
@@ -2220,7 +2234,7 @@ def create_smart_strategy(cfg: Dict[str, Any]) -> SmartStrategy:
         "min_confirmation": strategy_cfg.get("min_confirmation", 2),
         "scalp_mode": strategy_cfg.get("scalp_mode", False),
         # 杠杆参数
-        "leverage": cfg.get("risk", {}).get("leverage", 1.0),
+        "leverage": cfg.get("risk", {}).get("leverage", 1.0) if cfg.get("risk", {}).get("leverage_enabled", False) else 1.0,
         # BTC趋势参数
         "btc_trend_enabled": strategy_cfg.get("btc_trend_enabled", False),
         "btc_trend_weight": strategy_cfg.get("btc_trend_weight", 0.25),

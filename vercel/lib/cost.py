@@ -12,17 +12,22 @@ def fetch_execs(client, symbol: str, start_ms: int, end_ms: int, limit: int = 10
     while t0 < end_ms:
         t1 = min(t0 + WINDOW_MS - 1, end_ms)
         cursor = None
+        seen_cursors = set()
         while True:
             resp = client.get_trade_history(symbol=symbol, start_ms=t0, end_ms=t1, limit=limit, cursor=cursor)
             if resp.get("retCode") != 0:
-                break
+                raise RuntimeError(f"Incomplete execution history: retCode={resp.get('retCode')}")
             res = resp.get("result", {}) or {}
             lst = res.get("list", []) or []
             execs.extend(lst)
             cursor = res.get("nextPageCursor")
             if not cursor or not lst:
                 break
+            if cursor in seen_cursors:
+                raise RuntimeError('Repeated execution pagination cursor')
+            seen_cursors.add(cursor)
         t0 = t1 + 1
+    execs = list({e['execId']: e for e in execs}.values())
     execs.sort(key=lambda x: int(x.get("execTime", 0)))
     return execs
 
@@ -49,7 +54,7 @@ def compute_spot_avg_cost_from_execs(execs: List[Dict[str, Any]], base_coin: str
                 cost += px * q
                 if fee_ccy.upper() == quote_coin.upper():
                     cost += fee
-                qty += q
+                qty += q - (fee if fee_ccy.upper() == base_coin.upper() else 0)
                 # 记录买入价格和数量
                 if px > 0 and q > 0:
                     buy_prices.append(px)
@@ -761,3 +766,19 @@ def adjust_cost_by_trend(cost_price: float, trend_pct: Optional[float], max_adju
     
     # 趋势为0或接近0，不调整
     return cost_price
+
+
+def get_reconciled_cost(symbol, base_balance, max_age_seconds=300):
+    """Read the executor's reconciled FIFO cost for dashboard display only."""
+    import json
+    from db import get_meta
+    try:
+        row=json.loads(get_meta('v7_cost_'+symbol.upper()) or '{}')
+        if not row.get('complete') or time.time()*1000-row['ts_ms']>max_age_seconds*1000:
+            return 0.0
+        if abs(float(row['quantity'])-base_balance)>max(1e-6,base_balance*1e-7):
+            return 0.0
+        value=float(row['cost'])
+        return value if math.isfinite(value) and value>0 else 0.0
+    except (ValueError,TypeError,KeyError):
+        return 0.0

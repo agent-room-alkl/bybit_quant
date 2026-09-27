@@ -25,3 +25,9 @@ backtest_trend_trades.csv
 # Runtime logs
 nohup.out
 *.bak
+
+# Local credentials and Python environment
+.env
+.env.*
+.venv/
+.pytest_cache/
