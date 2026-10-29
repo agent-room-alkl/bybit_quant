@@ -105,6 +105,16 @@ USERS_DB = {
     }
 }
 
+# 测试账号：仅当环境变量 TEST_USER / TEST_PASSWORD 都设置时才创建，密码不入库
+_TEST_USER = os.environ.get("TEST_USER", "").strip()
+_TEST_PASSWORD = os.environ.get("TEST_PASSWORD", "")
+if _TEST_USER and _TEST_PASSWORD and _TEST_USER not in USERS_DB:
+    USERS_DB[_TEST_USER] = {
+        "username": _TEST_USER,
+        "password_hash": hashlib.sha256(_TEST_PASSWORD.encode()).hexdigest(),
+        "created_at": datetime.now().isoformat()
+    }
+
 security = HTTPBearer()
 
 def create_jwt_token(username: str) -> str:
